@@ -87,11 +87,11 @@ class CommandsCfg:
         debug_vis=True,
         ranges=mdp.UniformPoseCommandCfg.Ranges(
             pos_x=(-0.45, -0.32),  # 扩大x轴范围  nero：580mm 
-            pos_y=(-0.20, 0.20),  # 扩大y轴范围
-            pos_z=(0.15, 0.30),   # 稍微扩大z轴范围
-            roll=(-math.pi/6, math.pi/6),  # 扩大roll范围
-            pitch=(math.pi-math.pi/3, math.pi+math.pi/3),  # 扩大pitch范围
-            yaw=(-math.pi, math.pi),  # 允许yaw自由旋转
+            pos_y=(-0.25, 0.25),  # 扩大y轴范围
+            pos_z=(0.15, 0.35),   # 稍微扩大z轴范围
+            roll=(math.pi+math.pi/6, 2*math.pi-math.pi/3),  # 扩大roll范围  30-150
+            pitch=(-math.pi/3, math.pi/3),  # 扩大pitch范围 
+            yaw=(math.pi-math.pi/6, math.pi+math.pi/6),  # 允许yaw自由旋转  150-210
         ),
     )
 
@@ -183,7 +183,7 @@ class RewardsCfg:
     """
 
     # --- goal alignment (dense) ---
-    # coarse: L2 position error penalty (meters)
+    # coarse: L2 position error penalty (meters, unbounded)
     end_effector_position_tracking = RewTerm(
         func=mdp.position_command_error,
         weight=-0.2,
@@ -192,13 +192,14 @@ class RewardsCfg:
             "command_name": "ee_pose",
         },
     )
-    # fine: tanh-kernel position reward (unitless in [0,1])
+    # dense: tanh-kernel position reward (unitless in [0,1])
+    # 说明：std 取更大一些（比如 0.3m），让中远距离也有可观梯度，避免只靠线性 -d 推动。
     end_effector_position_tracking_fine_grained = RewTerm(
         func=mdp.position_command_error_tanh,
-        weight=0.1,
+        weight=0.5,
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
-            "std": 0.1,
+            "std": 0.3,
             "command_name": "ee_pose",
         },
     )
@@ -206,18 +207,40 @@ class RewardsCfg:
     # optional: orientation tracking (can set weight=0 to disable)
     end_effector_orientation_tracking = RewTerm(
         func=mdp.orientation_command_error,
-        weight=-0.1,
+        weight=-0.05,
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
             "command_name": "ee_pose",
         },
     )
+    # dense: tanh-kernel orientation reward (unitless in [0,1])
+    end_effector_orientation_tracking_fine_grained = RewTerm(
+        func=mdp.orientation_command_error_tanh,
+        weight=0.15,
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
+            "std": 0.7,
+            "command_name": "ee_pose",
+        },
+    )
+
+    # sparse success bonus: both position and orientation within thresholds
+    reach_success = RewTerm(
+        func=mdp.reach_success_bonus,
+        weight=3.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
+            "command_name": "ee_pose",
+            "pos_threshold": 0.04,  # 4 cm
+            "rot_threshold": 0.2,   # ~11.5 deg (quat_error_magnitude scale)
+        },
+    )
 
     # --- penalties (keep small) ---
-    action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.0001)
+    action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.0002)
     joint_vel = RewTerm(
         func=mdp.joint_vel_l2,
-        weight=-0.0001,
+        weight=-0.002,
         params={"asset_cfg": SceneEntityCfg("robot", joint_names=["joint[1-7]"])},
     )
 

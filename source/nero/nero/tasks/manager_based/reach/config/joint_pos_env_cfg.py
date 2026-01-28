@@ -2,7 +2,6 @@
 
 from isaaclab.utils import configclass
 from isaaclab.assets.articulation import ArticulationCfg
-from isaaclab.controllers import DifferentialIKControllerCfg
 from .. import mdp
 from ..reach_env_cfg import ReachEnvCfg
 
@@ -15,7 +14,7 @@ class NEROReachEnvCfg(ReachEnvCfg):
         # post init of parent
         super().__post_init__()
 
-        # switch robot to FR5
+        # switch robot to Nero
         self.scene.robot = NERO_IDEAL_CFG.replace(
             prim_path="{ENV_REGEX_NS}/Robot",
         )
@@ -24,21 +23,16 @@ class NEROReachEnvCfg(ReachEnvCfg):
         self.rewards.end_effector_position_tracking.params["asset_cfg"].body_names = ["link7"]
         self.rewards.end_effector_position_tracking_fine_grained.params["asset_cfg"].body_names = ["link7"]
         self.rewards.end_effector_orientation_tracking.params["asset_cfg"].body_names = ["link7"]
+        self.rewards.end_effector_orientation_tracking_fine_grained.params["asset_cfg"].body_names = ["link7"]
+        self.rewards.reach_success.params["asset_cfg"].body_names = ["link7"]
 
-        # override actions: Differential IK in task-space (end-effector)
-        # - action is delta position in robot root frame (3D), scaled by `scale`
-        # - IK solver computes joint targets each step
-        self.actions.arm_action = mdp.DifferentialInverseKinematicsActionCfg(
+        # override actions: joint-space learning (joint position targets)
+        # target_joint_pos = offset(default_joint_pos) + scale * action
+        self.actions.arm_action = mdp.JointPositionActionCfg(
             asset_name="robot",
             joint_names=["joint.*"],
-            body_name="link7",
-            scale=0.05,  # meters per step for action in [-1, 1]
-            controller=DifferentialIKControllerCfg(
-                command_type="position",
-                use_relative_mode=True,
-                ik_method="dls",
-                ik_params={"lambda_val": 0.05},
-            ),
+            scale=0.5,
+            use_default_offset=True,
         )
 
         # override command generator body

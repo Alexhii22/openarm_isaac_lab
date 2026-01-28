@@ -82,9 +82,29 @@ def orientation_command_error_tanh(
     return 1.0 - torch.tanh(err / std)
 
 
+def reach_success_bonus(
+    env: ManagerBasedRLEnv,
+    pos_threshold: float,
+    rot_threshold: float,
+    command_name: str,
+    asset_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+    """Sparse reward: returns 1.0 when both position and orientation errors are below thresholds.
+
+    Args:
+        pos_threshold: Maximum position error in meters (e.g., 0.02 = 2cm).
+        rot_threshold: Maximum orientation error in radians (e.g., 0.1 ≈ 5.7°).
+    """
+    pos_err = position_command_error(env, command_name, asset_cfg)
+    rot_err = orientation_command_error(env, command_name, asset_cfg)
+    success = (pos_err < pos_threshold) & (rot_err < rot_threshold)
+    return success.float()
+
+
 __all__ = [
     "position_command_error",
     "position_command_error_tanh",
     "orientation_command_error",
     "orientation_command_error_tanh",
+    "reach_success_bonus",
 ]
