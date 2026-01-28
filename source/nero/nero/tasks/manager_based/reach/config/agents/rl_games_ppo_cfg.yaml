@@ -1,17 +1,4 @@
 # Copyright 2025 Enactic, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 
 params:
   seed: 42
@@ -24,8 +11,9 @@ params:
   algo:
     name: a2c_continuous
 
+  # continuous_a2c_tanh 用 softplus(logstd+0.001) 得到 sigma，恒 >0，避免 continuous_a2c_logstd 下 logstd 极端导致 std<=0 报错
   model:
-    name: continuous_a2c_logstd
+    name: continuous_a2c_tanh
 
   network:
     name: actor_critic
@@ -42,7 +30,7 @@ params:
           val: 0
         fixed_sigma: True
     mlp:
-      units: [128, 128]
+      units: [256, 128]
       activation: elu
       d2rl: False
 
@@ -55,7 +43,7 @@ params:
   load_path: '' # path to the checkpoint to load
 
   config:
-    name: openarm_reach
+    name: fr5_reach
     env_name: rlgpu
     device: 'cuda:0'
     device_name: 'cuda:0'
@@ -69,23 +57,23 @@ params:
     reward_shaper:
       scale_value: 1.0
     normalize_advantage: True
-    gamma: 0.99
+    gamma: 0.99 #折扣因子
     tau: 0.95
-    learning_rate: 1e-3
+    learning_rate: 3e-4
     lr_schedule: adaptive
     schedule_type: legacy
     kl_threshold: 0.01
     score_to_win: 10000
-    max_epochs: 1000
+    max_epochs: 2000
     save_best_after: 200
     save_frequency: 100
     print_stats: True
     grad_norm: 1.0
     entropy_coef: 0.01
     truncate_grads: True
-    e_clip: 0.2
-    horizon_length: 24
-    minibatch_size: 24576
+    e_clip: 0.2 #剪裁参数
+    horizon_length: 48
+    minibatch_size: 24576 #24576
     mini_epochs: 5
     critic_coef: 2
     clip_value: True

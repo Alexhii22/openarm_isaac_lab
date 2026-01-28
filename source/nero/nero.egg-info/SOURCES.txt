@@ -1,0 +1,8 @@
+pyproject.toml
+setup.py
+nero/__init__.py
+nero.egg-info/PKG-INFO
+nero.egg-info/SOURCES.txt
+nero.egg-info/dependency_links.txt
+nero.egg-info/not-zip-safe
+nero.egg-info/top_level.txt

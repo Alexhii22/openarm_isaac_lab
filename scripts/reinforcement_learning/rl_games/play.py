@@ -46,6 +46,17 @@ parser.add_argument(
     help="When no checkpoint provided, use the last saved model. Otherwise use the best saved model.",
 )
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
+parser.add_argument(
+    "--print_ee_pose",
+    action="store_true",
+    default=False,
+    help="Print current EE pose and target pose (env 0) to terminal each step. Requires scene['robot'] and command 'ee_pose'.",
+)
+parser.add_argument("--ee_body_name", type=str, default="link7", help="Body name for EE when --print_ee_pose (e.g. link7).")
+parser.add_argument("--ee_command_name", type=str, default="ee_pose", help="Command name for target when --print_ee_pose.")
+parser.add_argument(
+    "--print_ee_interval", type=int, default=30, help="Print EE/target pose every N steps when --print_ee_pose (default 30)."
+)
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 # parse the arguments
@@ -83,7 +94,14 @@ from isaaclab.envs import (
 )
 from isaaclab.utils.assets import retrieve_file_path
 from isaaclab.utils.dict import print_dict
-from isaaclab.utils.pretrained_checkpoint import get_published_pretrained_checkpoint
+from isaaclab.utils.math import combine_frame_transforms
+# Optional helper for fetching published pretrained checkpoints.
+# Not all IsaacLab versions ship this utility. We only need it when
+# `--use_pretrained_checkpoint` is enabled.
+try:
+    from isaaclab.utils.pretrained_checkpoint import get_published_pretrained_checkpoint  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover
+    get_published_pretrained_checkpoint = None  # type: ignore[assignment]
 
 from isaaclab_rl.rl_games import RlGamesGpuEnv, RlGamesVecEnvWrapper
 
@@ -91,7 +109,22 @@ import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_tasks.utils.hydra import hydra_task_config
 
-import openarm.tasks  # noqa: F401
+# -----------------------------------------------------------------------------
+# Make local extensions importable without installing them (editable install).
+# This repo keeps extensions under: <repo_root>/source/{openarm,nero}/
+# -----------------------------------------------------------------------------
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+for _ext_dir in (os.path.join(_REPO_ROOT, "source", "openarm"), os.path.join(_REPO_ROOT, "source", "nero")):
+    if os.path.isdir(_ext_dir) and _ext_dir not in sys.path:
+        sys.path.insert(0, _ext_dir)
+
+# Import task registrations (side effects: gym.register)
+try:
+    import openarm.tasks  # noqa: F401
+except ModuleNotFoundError:
+    # OpenArm is optional for Nero-only workflows.
+    pass
+import nero.tasks  # noqa: F401
 
 # PLACEHOLDER: Extension template (do not remove this comment)
 
@@ -122,6 +155,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     print(f"[INFO] Loading experiment from directory: {log_root_path}")
     # find checkpoint
     if args_cli.use_pretrained_checkpoint:
+        if get_published_pretrained_checkpoint is None:
+            raise ModuleNotFoundError(
+                "Pretrained checkpoint helper is unavailable in this IsaacLab version. "
+                "Disable `--use_pretrained_checkpoint` or provide `--checkpoint <path>`."
+            )
         resume_path = get_published_pretrained_checkpoint("rl_games", train_task_name)
         if not resume_path:
             print("[INFO] Unfortunately a pre-trained checkpoint is currently unavailable for this task.")
@@ -207,6 +245,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # initialize RNN states if used
     if agent.is_rnn:
         agent.init_rnn()
+    play_step = 0
     # simulate environment
     # note: We simplified the logic in rl-games player.py (:func:`BasePlayer.run()`) function in an
     #   attempt to have complete control over environment stepping. However, this removes other
@@ -221,6 +260,49 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             actions = agent.get_action(obs, is_deterministic=agent.is_deterministic)
             # env stepping
             obs, _, dones, _ = env.step(actions)
+
+            # optional: print current EE pose, target pose, EE-to-target distance, and action magnitude (env 0)
+            # 若机械臂停在某固定位姿而目标点不是该点，多为策略未跟踪目标：要么策略输出近似恒定
+            # （JointPositionAction 下 arm 就稳在 offset+scale*action），要么观测里目标信息被
+            # normalize_input 压掉或训练不足导致策略忽略 pose_command。看 dist_ee_to_target_m
+            # 与 action_l2 是否几乎不变可辅助判断。
+            if args_cli.print_ee_pose and (play_step % args_cli.print_ee_interval == 0):
+                try:
+                    isaac_env = env.unwrapped
+                    if hasattr(isaac_env, "scene") and hasattr(isaac_env, "command_manager"):
+                        robot = isaac_env.scene["robot"]
+                        cmd = isaac_env.command_manager.get_command(args_cli.ee_command_name)
+                        body_idx = robot.find_bodies(args_cli.ee_body_name)[0][0]
+                        ee_pos = robot.data.body_pos_w[0, body_idx].cpu().numpy()
+                        ee_quat = robot.data.body_quat_w[0, body_idx].cpu().numpy()
+                        des_pos_b = cmd[0:1, :3]
+                        des_quat_b = cmd[0:1, 3:7]
+                        des_pos_w, des_quat_w = combine_frame_transforms(
+                            robot.data.root_pos_w[0:1],
+                            robot.data.root_quat_w[0:1],
+                            des_pos_b,
+                            des_quat_b,
+                        )
+                        des_pos = des_pos_w[0].cpu().numpy()
+                        des_quat = des_quat_w[0].cpu().numpy()
+                        dist_ee_to_target_m = float(
+                            torch.norm(robot.data.body_pos_w[0:1, body_idx] - des_pos_w).item()
+                        )
+                        a = actions[0] if hasattr(actions, "__getitem__") else actions
+                        a_t = a.float() if torch.is_tensor(a) else torch.as_tensor(a, dtype=torch.float32)
+                        action_l2 = float(torch.linalg.norm(a_t).item())
+                        print(
+                            f"[step {play_step}] dist_ee_to_target_m={dist_ee_to_target_m:.4f}  action_l2={action_l2:.4f}"
+                        )
+                        print(
+                            f"[EE env0] pos_w {ee_pos.round(4).tolist()}  quat_w(wxyz) {ee_quat.round(4).tolist()}"
+                        )
+                        print(
+                            f"[目标 env0] pos_w {des_pos.round(4).tolist()}  quat_w(wxyz) {des_quat.round(4).tolist()}"
+                        )
+                except (KeyError, AttributeError, IndexError, TypeError):
+                    pass
+            play_step += 1
 
             # perform operations for terminated episodes
             if len(dones) > 0:

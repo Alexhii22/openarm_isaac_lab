@@ -95,7 +95,22 @@ from isaaclab_rl.rl_games import MultiObserver, PbtAlgoObserver, RlGamesGpuEnv, 
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils.hydra import hydra_task_config
 
-import openarm.tasks  # noqa: F401
+# -----------------------------------------------------------------------------
+# Make local extensions importable without installing them (editable install).
+# This repo keeps extensions under: <repo_root>/source/{openarm,nero}/
+# -----------------------------------------------------------------------------
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+for _ext_dir in (os.path.join(_REPO_ROOT, "source", "openarm"), os.path.join(_REPO_ROOT, "source", "nero")):
+    if os.path.isdir(_ext_dir) and _ext_dir not in sys.path:
+        sys.path.insert(0, _ext_dir)
+
+# Import task registrations (side effects: gym.register)
+try:
+    import openarm.tasks  # noqa: F401
+except ModuleNotFoundError:
+    # OpenArm is optional for Nero-only workflows.
+    pass
+import nero.tasks  # noqa: F401
 
 # PLACEHOLDER: Extension template (do not remove this comment)
 
