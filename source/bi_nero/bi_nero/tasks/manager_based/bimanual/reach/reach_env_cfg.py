@@ -220,7 +220,7 @@ class RewardsCfg:
     # task terms
     left_end_effector_position_tracking = RewTerm(
         func=mdp.position_command_error,
-        weight=-0.22,
+        weight=-0.24,
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
             "command_name": "left_ee_pose",
@@ -258,7 +258,7 @@ class RewardsCfg:
 
     left_end_effector_orientation_tracking = RewTerm(
         func=mdp.orientation_command_error,
-        weight=-0.08,
+        weight=-0.09,
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
             "command_name": "left_ee_pose",
@@ -267,7 +267,7 @@ class RewardsCfg:
 
     right_end_effector_orientation_tracking = RewTerm(
         func=mdp.orientation_command_error,
-        weight=-0.08,
+        weight=-0.09,
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
             "command_name": "right_ee_pose",
@@ -315,17 +315,17 @@ class CurriculumCfg:
 
     action_rate = CurrTerm(
         func=mdp.modify_reward_weight,
-        params={"term_name": "action_rate", "weight": -0.005, "num_steps": 6000},
+        params={"term_name": "action_rate", "weight": -0.005, "num_steps": 5000},
     )
 
     left_joint_vel = CurrTerm(
         func=mdp.modify_reward_weight,
-        params={"term_name": "left_joint_vel", "weight": -0.001, "num_steps": 6000},
+        params={"term_name": "left_joint_vel", "weight": -0.001, "num_steps": 5000},
     )
 
     right_joint_vel = CurrTerm(
         func=mdp.modify_reward_weight,
-        params={"term_name": "right_joint_vel", "weight": -0.001, "num_steps": 6000},
+        params={"term_name": "right_joint_vel", "weight": -0.001, "num_steps": 5000},
     )
 
 

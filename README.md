@@ -44,51 +44,9 @@ This repository has been tested with:
 
 ## Installation Guide
 
-### (Option 1) Docker installation (linux only)
 
-1. Pull the minimal Isaac Lab container
-```bash
-docker pull nvcr.io/nvidia/isaac-lab:2.3.0
-```
-
-2. Create container
-```bash
-xhost +
-docker run --name isaac-lab --entrypoint bash -it --gpus all --rm -e "ACCEPT_EULA=Y" --network=host \
-   -e "PRIVACY_CONSENT=Y" \
-   -e DISPLAY \
-   -v $HOME/.Xauthority:/root/.Xauthority \
-   -v ~/docker/isaac-sim/cache/kit:/isaac-sim/kit/cache:rw \
-   -v ~/docker/isaac-sim/cache/ov:/root/.cache/ov:rw \
-   -v ~/docker/isaac-sim/cache/pip:/root/.cache/pip:rw \
-   -v ~/docker/isaac-sim/cache/glcache:/root/.cache/nvidia/GLCache:rw \
-   -v ~/docker/isaac-sim/cache/computecache:/root/.nv/ComputeCache:rw \
-   -v ~/docker/isaac-sim/logs:/root/.nvidia-omniverse/logs:rw \
-   -v ~/docker/isaac-sim/data:/root/.local/share/ov/data:rw \
-   -v ~/docker/isaac-sim/documents:/root/Documents:rw \
-   nvcr.io/nvidia/isaac-lab:2.3.0
-```
-
-3. Clone git at your HOME directory
-```bash
-cd /workspace
-git clone git@github.com:enactic/openarm_isaac_lab.git
-```
-
-4. Install python package with
-```bash
-cd openarm_isaac_lab
-python -m pip install -e source/openarm
-```
-
-5. With this command, you can verify that OpenArm package has been properly installed and check all the environments where it can be executed.
-```bash
-python ./scripts/tools/list_envs.py
-```
-
-### (Option 2) Local installation
-
-It is assumed that you have created a virtual environment named env_isaaclab using miniconda or anaconda and will be working within that environment.
+### Local installation
+根据OPENARM单双臂构建的isaaclab ppo rl训练库 实现 单双臂 reach功能 
 
 1. Clone git at your HOME directory
 ```bash
@@ -104,7 +62,7 @@ conda activate env_isaaclab
 3. Install python package with
 ```bash
 cd openarm_isaac_lab
-python -m pip install -e source/openarm
+python -m pip install -e source/bi_nero
 ```
 
 4. With this command, you can verify that OpenArm package has been properly installed and check all the environments where it can be executed.
@@ -112,28 +70,16 @@ python -m pip install -e source/openarm
 python ./scripts/tools/list_envs.py
 ```
 
-## Reinforcement Learning (RL)
-You can run different tasks and policies.
-
-Replace `<TASK_NAME>` and `<POLICY_NAME>` with one of the following available tasks:
-
-| Task Description        | Task Name                      | Policy Name                         | Demo                                |
-| ----------------------- | ------------------------------ | ----------------------------------- | ------------------------------------ |
-| Reach target position   | `Isaac-Reach-OpenArm-v0`       | `rsl_rl`, `rl_games`, `skrl`        | <img src="video/openarm-reach-demo.gif" width="400"/>          |
-| Lift a cube             | `Isaac-Lift-Cube-OpenArm-v0`   | `rsl_rl`, `rl_games`, `skrl` | <img src="video/openarm-lift-demo.gif" width="400"/>           |
-| Open a cabinet's drawer | `Isaac-Open-Drawer-OpenArm-v0` | `rsl_rl`, `rl_games`, `skrl`        | <img src="video/openarm-drawer-demo.gif" width="400"/>         |
-| Reach target position (Bimanual)  | `Isaac-Reach-OpenArm-Bi-v0`    | `rsl_rl`, `rl_games`, `skrl`        | <img src="video/openarm-bi-reach-demo.gif" width="400"/>          |
-
 ### Training Model
 
 ```bash
-python ./scripts/reinforcement_learning/<POLICY_NAME>/train.py --task <TASK_NAME> --headless
+python ./scripts/reinforcement_learning/rsl_rl/train.py --task Isaac-Reach-BiNero-Bi-v0 --headless
 ```
 
 ### Replay Trained Model
 
 ```bash
-python ./scripts/reinforcement_learning/<POLICY_NAME>/play.py --task <TASK_NAME> --num_envs 64
+python ./scripts/reinforcement_learning/rsl_rl/play.py --task Isaac-Reach-BiNero-Bi-v0 --num_envs 8
 ```
 
 ### Analyze logs
