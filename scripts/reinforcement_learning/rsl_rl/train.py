@@ -106,6 +106,7 @@ from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_tasks.utils.hydra import hydra_task_config
 
 import openarm.tasks  # noqa: F401
+import bi_nero.tasks  # noqa: F401
 
 # PLACEHOLDER: Extension template (do not remove this comment)
 

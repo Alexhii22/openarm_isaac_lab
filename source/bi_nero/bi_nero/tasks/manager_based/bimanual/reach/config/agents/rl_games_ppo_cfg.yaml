@@ -1,4 +1,16 @@
 # Copyright 2025 Enactic, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 params:
   seed: 42
@@ -11,9 +23,8 @@ params:
   algo:
     name: a2c_continuous
 
-  # continuous_a2c_tanh 用 softplus(logstd+0.001) 得到 sigma，恒 >0，避免 continuous_a2c_logstd 下 logstd 极端导致 std<=0 报错
   model:
-    name: continuous_a2c_tanh
+    name: continuous_a2c_logstd
 
   network:
     name: actor_critic
@@ -27,8 +38,8 @@ params:
           name: default
         sigma_init:
           name: const_initializer
-          val: 0  # 初始探索噪声，否则策略输出≈0→机械臂一直保持默认姿态(往下)
-        fixed_sigma: True  # 允许学习/衰减 sigma，前期探索、后期可收敛为确定性
+          val: 0
+        fixed_sigma: True
     mlp:
       units: [64, 64]
       activation: elu
@@ -43,7 +54,7 @@ params:
   load_path: '' # path to the checkpoint to load
 
   config:
-    name: nero_reach
+    name: bi_nero_bi_reach
     env_name: rlgpu
     device: 'cuda:0'
     device_name: 'cuda:0'
@@ -57,9 +68,9 @@ params:
     reward_shaper:
       scale_value: 1.0
     normalize_advantage: True
-    gamma: 0.99 #折扣因子
+    gamma: 0.99
     tau: 0.95
-    learning_rate: 1e-3  
+    learning_rate: 1e-3
     lr_schedule: adaptive
     schedule_type: legacy
     kl_threshold: 0.01
@@ -69,11 +80,11 @@ params:
     save_frequency: 100
     print_stats: True
     grad_norm: 1.0
-    entropy_coef: 0.01  # 低熵系数，鼓励确定性策略
+    entropy_coef: 0.01
     truncate_grads: True
-    e_clip: 0.2 #剪裁参数
+    e_clip: 0.2
     horizon_length: 24
-    minibatch_size: 24576 #24576
+    minibatch_size: 24
     mini_epochs: 5
     critic_coef: 2
     clip_value: True

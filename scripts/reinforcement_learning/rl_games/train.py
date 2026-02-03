@@ -89,10 +89,86 @@ from isaaclab.envs import (
 from isaaclab.utils.assets import retrieve_file_path
 from isaaclab.utils.dict import print_dict
 from isaaclab.utils.io import dump_yaml
+from isaaclab.utils.math import combine_frame_transforms
 
 from isaaclab_rl.rl_games import MultiObserver, PbtAlgoObserver, RlGamesGpuEnv, RlGamesVecEnvWrapper
 
 import isaaclab_tasks  # noqa: F401
+
+
+def _get_isaac_env(env):
+    """Unwrap gym/RlGames wrappers to get ManagerBasedRLEnv (or equivalent)."""
+    e = env
+    while hasattr(e, "env"):
+        e = e.env
+    return getattr(e, "unwrapped", e)
+
+
+def _print_epoch_pose_and_reward(env, epoch: int, body_name: str = "link7", command_name: str = "ee_pose"):
+    """Print target/link7 pose and reward breakdown (used every N steps = 1 epoch)."""
+    try:
+        isaac_env = _get_isaac_env(env)
+        if not (hasattr(isaac_env, "scene") and hasattr(isaac_env, "command_manager")):
+            return
+        robot = isaac_env.scene["robot"]
+        cmd = isaac_env.command_manager.get_command(command_name)
+        body_idx = robot.find_bodies(body_name)[0][0]
+        env_id = 0
+        ee_pos = robot.data.body_pos_w[env_id, body_idx].cpu().numpy()
+        ee_quat = robot.data.body_quat_w[env_id, body_idx].cpu().numpy()
+        des_pos_b = cmd[env_id : env_id + 1, :3]
+        des_quat_b = cmd[env_id : env_id + 1, 3:7]
+        des_pos_w, des_quat_w = combine_frame_transforms(
+            robot.data.root_pos_w[env_id : env_id + 1],
+            robot.data.root_quat_w[env_id : env_id + 1],
+            des_pos_b,
+            des_quat_b,
+        )
+        des_pos = des_pos_w[0].cpu().numpy()
+        des_quat = des_quat_w[0].cpu().numpy()
+        print(f"[epoch {epoch}] target_w pos {des_pos.round(4).tolist()}  quat_w(wxyz) {des_quat.round(4).tolist()}")
+        print(f"[epoch {epoch}] link7_w pos {ee_pos.round(4).tolist()}  quat_w(wxyz) {ee_quat.round(4).tolist()}")
+
+        if hasattr(isaac_env, "reward_manager"):
+            rm = isaac_env.reward_manager
+            sums = getattr(rm, "episode_sums", None) or getattr(rm, "_episode_sums", None)
+            if sums is not None and isinstance(sums, dict):
+                print(f"[epoch {epoch}] reward breakdown (episode_sums mean over envs):")
+                for name, tensor in sums.items():
+                    if hasattr(tensor, "mean"):
+                        mean_val = tensor.mean().item()
+                        print(f"  {name}: {mean_val:.6f}")
+    except Exception as exc:
+        print(f"[epoch] print failed: {exc}")
+
+
+class EpochPrintWrapper:
+    """Wraps any vec env (e.g. RlGamesVecEnvWrapper): every horizon_length step() calls (≈1 epoch), prints target/link7 + reward breakdown. Delegates all other attrs to inner env."""
+
+    def __init__(self, env, horizon_length: int, body_name: str = "link7", command_name: str = "ee_pose"):
+        self._env = env
+        self._horizon_length = max(1, horizon_length)
+        self._step_calls = 0
+        self._epoch = 0
+        self._body_name = body_name
+        self._command_name = command_name
+
+    def step(self, action):
+        out = self._env.step(action)
+        self._step_calls += 1
+        if self._step_calls >= self._horizon_length:
+            self._step_calls = 0
+            self._epoch += 1
+            _print_epoch_pose_and_reward(self._env, self._epoch, self._body_name, self._command_name)
+        return out
+
+    def reset(self, **kwargs):
+        return self._env.reset(**kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._env, name)
+
+
 from isaaclab_tasks.utils.hydra import hydra_task_config
 
 # -----------------------------------------------------------------------------
@@ -194,6 +270,49 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # create isaac environment
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
 
+    def _print_target_and_ee_pose(env_to_print, env_id: int = 0, body_name: str = "link7", command_name: str = "ee_pose"):
+        """Print target pose (world) and link7 pose (world) for env_id."""
+        try:
+            isaac_env = env_to_print.unwrapped
+            if not (hasattr(isaac_env, "scene") and hasattr(isaac_env, "command_manager")):
+                return
+            robot = isaac_env.scene["robot"]
+            cmd = isaac_env.command_manager.get_command(command_name)
+            body_idx = robot.find_bodies(body_name)[0][0]
+            ee_pos = robot.data.body_pos_w[env_id, body_idx].cpu().numpy()
+            ee_quat = robot.data.body_quat_w[env_id, body_idx].cpu().numpy()
+            des_pos_b = cmd[env_id : env_id + 1, :3]
+            des_quat_b = cmd[env_id : env_id + 1, 3:7]
+            des_pos_w, des_quat_w = combine_frame_transforms(
+                robot.data.root_pos_w[env_id : env_id + 1],
+                robot.data.root_quat_w[env_id : env_id + 1],
+                des_pos_b,
+                des_quat_b,
+            )
+            des_pos = des_pos_w[0].cpu().numpy()
+            des_quat = des_quat_w[0].cpu().numpy()
+            print(
+                f"[episode start env{env_id}] target_w pos {des_pos.round(4).tolist()}  quat_w(wxyz) {des_quat.round(4).tolist()}"
+            )
+            print(
+                f"[episode start env{env_id}] link7_w pos {ee_pos.round(4).tolist()}  quat_w(wxyz) {ee_quat.round(4).tolist()}"
+            )
+        except Exception as exc:
+            print(f"[episode start] pose print failed: {exc}")
+
+    # print once at startup (before training loop)
+    _print_target_and_ee_pose(env, env_id=0)
+
+    # wrap reset to print at each episode start
+    _orig_reset = env.reset
+
+    def _reset_with_print(*args, **kwargs):
+        obs = _orig_reset(*args, **kwargs)
+        _print_target_and_ee_pose(env, env_id=0)
+        return obs
+
+    env.reset = _reset_with_print
+
     # convert to single-agent instance if required by the RL algorithm
     if isinstance(env.unwrapped, DirectMARLEnv):
         env = multi_agent_to_single_agent(env)
@@ -212,6 +331,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # wrap around environment for rl-games
     env = RlGamesVecEnvWrapper(env, rl_device, clip_obs, clip_actions, obs_groups, concate_obs_groups)
+
+    # every horizon_length step() calls ≈ 1 epoch: print target/link7 pose + reward breakdown
+    horizon_length = agent_cfg["params"]["config"].get("horizon_length", 24)
+    env = EpochPrintWrapper(env, horizon_length, body_name="link7", command_name="ee_pose")
 
     # register the environment to rl-games registry
     # note: in agents configuration: environment name must be "rlgpu"

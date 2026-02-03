@@ -18,7 +18,6 @@ import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import ActionTermCfg as ActionTerm
-from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
@@ -83,15 +82,15 @@ class CommandsCfg:
     ee_pose = mdp.UniformPoseCommandCfg(
         asset_name="robot",
         body_name=MISSING,
-        resampling_time_range=(2.5, 3.5),
+        resampling_time_range=(4.0, 4.0),
         debug_vis=True,
         ranges=mdp.UniformPoseCommandCfg.Ranges(
-            pos_x=(-0.45, -0.32),  # 扩大x轴范围  nero：580mm 
-            pos_y=(-0.25, 0.25),  # 扩大y轴范围
-            pos_z=(0.15, 0.35),   # 稍微扩大z轴范围
-            roll=(math.pi+math.pi/6, 2*math.pi-math.pi/3),  # 扩大roll范围  30-150
-            pitch=(-math.pi/3, math.pi/3),  # 扩大pitch范围 
-            yaw=(math.pi-math.pi/6, math.pi+math.pi/6),  # 允许yaw自由旋转  150-210
+            pos_x=(-0.10, -0.10),  # 扩大x轴范围  nero：580mm 
+            pos_y=(-0.10, 0.10),  # 扩大y轴范围
+            pos_z=(0.60, 0.70),   # 稍微扩大z轴范围
+            roll=(math.pi-math.pi/2, math.pi-math.pi/2),  # 扩大roll范围  30-150
+            pitch=(math.pi+math.pi/2, math.pi+math.pi/2),  # 扩大pitch范围 
+            yaw=(-math.pi/6, math.pi/6),  # 允许yaw自由旋转  150-210
         ),
     )
 
@@ -116,20 +115,43 @@ class ObservationsCfg:
         joint_pos = ObsTerm(
             func=mdp.joint_pos_rel,
             params={
-                "asset_cfg": SceneEntityCfg("robot", joint_names=["joint[1-7]"])
+                "asset_cfg": SceneEntityCfg(
+                    "robot",
+                    joint_names=[
+                        "joint1",
+                        "joint2",
+                        "joint3",
+                        "joint4",
+                        "joint5",
+                        "joint6",
+                        "joint7",
+                    ],
+                )
             },
             noise=Unoise(n_min=-0.001, n_max=0.001),
         )
         joint_vel = ObsTerm(
             func=mdp.joint_vel_rel,
             params={
-                "asset_cfg": SceneEntityCfg("robot", joint_names=["joint[1-7]"])
+                "asset_cfg": SceneEntityCfg(
+                    "robot",
+                    joint_names=[
+                        "joint1",
+                        "joint2",
+                        "joint3",
+                        "joint4",
+                        "joint5",
+                        "joint6",
+                        "joint7",
+                    ],
+                )
             },
             noise=Unoise(n_min=-0.001, n_max=0.001),
         )
         pose_command = ObsTerm(
             func=mdp.generated_commands, params={"command_name": "ee_pose"}
         )
+
         actions = ObsTerm(func=mdp.last_action)
 
         def __post_init__(self):
@@ -154,13 +176,13 @@ class EventCfg:
             ),
             "joint_limits": {
                 # from nero_description.urdf
-                "joint1": (-2.7, 2.7),
-                "joint2": (-1.74, 1.74),
-                "joint3": (-2.75, 2.75),
-                "joint4": (-1.01, 2.14),
-                "joint5": (-2.75, 2.75),
-                "joint6": (-0.73, 0.95),
-                "joint7": (-1.57, 1.57),
+                "joint1": (-2.740167, 2.740167),
+                "joint2": (-1.731799, 3.316126),
+                "joint3": (-2.792527, 2.792527),
+                "joint4": (-1.047198, 2.181662),
+                "joint5": (-2.792527, 2.792527),
+                "joint6": (-0.750492, 1.012291),
+                "joint7": (-1.570796, 1.570796),
             },
         },
     )
@@ -182,66 +204,58 @@ class RewardsCfg:
     说明：每个 term 单独输出，权重可在此处直接调，不要在函数里“硬编码权重”。
     """
 
-    # --- goal alignment (dense) ---
-    # coarse: L2 position error penalty (meters, unbounded)
+    # --- Task: Position tracking ---
+    # [DISABLED] Conflicting with Tanh reward. L2 penalty is too harsh at long range.
     end_effector_position_tracking = RewTerm(
         func=mdp.position_command_error,
-        weight=-0.2,
+        weight=-1.0,
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
             "command_name": "ee_pose",
         },
     )
-    # dense: tanh-kernel position reward (unitless in [0,1])
-    # 说明：std 取更大一些（比如 0.3m），让中远距离也有可观梯度，避免只靠线性 -d 推动。
+    
     end_effector_position_tracking_fine_grained = RewTerm(
         func=mdp.position_command_error_tanh,
-        weight=0.5,
+        weight=0.3,  # 放大梯度感知（平替 scale），同位移产生更大奖励变化
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
-            "std": 0.3,
+            "std": 0.3,  # 略减小使曲线更陡，同位移梯度更强
             "command_name": "ee_pose",
         },
     )
 
-    # optional: orientation tracking (can set weight=0 to disable)
+    
+    # --- Task: Orientation tracking ---
     end_effector_orientation_tracking = RewTerm(
         func=mdp.orientation_command_error,
-        weight=-0.05,
+        weight=0.1, # Increased penalty (from -0.1) to force orientation alignment
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
-            "command_name": "ee_pose",
-        },
-    )
-    # dense: tanh-kernel orientation reward (unitless in [0,1])
-    end_effector_orientation_tracking_fine_grained = RewTerm(
-        func=mdp.orientation_command_error_tanh,
-        weight=0.15,
-        params={
-            "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
-            "std": 0.7,
             "command_name": "ee_pose",
         },
     )
 
-    # sparse success bonus: both position and orientation within thresholds
-    reach_success = RewTerm(
-        func=mdp.reach_success_bonus,
-        weight=3.0,
-        params={
-            "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
-            "command_name": "ee_pose",
-            "pos_threshold": 0.04,  # 4 cm
-            "rot_threshold": 0.2,   # ~11.5 deg (quat_error_magnitude scale)
-        },
-    )
 
-    # --- penalties (keep small) ---
-    action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.0002)
+    # --- Penalties: Smoothness ---
+    action_rate = RewTerm(func=mdp.action_rate_l2, weight=0.0)
     joint_vel = RewTerm(
         func=mdp.joint_vel_l2,
-        weight=-0.002,
-        params={"asset_cfg": SceneEntityCfg("robot", joint_names=["joint[1-7]"])},
+        weight=0.0,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot",
+                joint_names=[
+                    "joint1",
+                    "joint2",
+                    "joint3",
+                    "joint4",
+                    "joint5",
+                    "joint6",
+                    "joint7",
+                ],
+            )
+        },
     )
 
 
@@ -250,11 +264,6 @@ class TerminationsCfg:
     """Termination terms for the MDP."""
 
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
-
-
-@configclass
-class CurriculumCfg:
-    """Curriculum terms for the MDP. 当前奖励仅位姿，无需权重课程。"""
 
 
 ##
@@ -276,14 +285,14 @@ class ReachEnvCfg(ManagerBasedRLEnvCfg):
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
-    curriculum: CurriculumCfg = CurriculumCfg()
 
     def __post_init__(self):
         """Post initialization."""
         # general settings
+        # decimation=4 → step_dt=1/15 s，单步关节约 0.143 rad（等效放大单步位移，不改 scale）
         self.decimation = 2
         self.sim.render_interval = self.decimation
-        self.episode_length_s = 12.0
+        self.episode_length_s = 24.0
         self.viewer.eye = (3.5, 3.5, 3.5)
         # simulation settings
         self.sim.dt = 1.0 / 60.0

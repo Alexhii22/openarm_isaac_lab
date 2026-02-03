@@ -94,7 +94,7 @@ from isaaclab.envs import (
 )
 from isaaclab.utils.assets import retrieve_file_path
 from isaaclab.utils.dict import print_dict
-from isaaclab.utils.math import combine_frame_transforms
+from isaaclab.utils.math import combine_frame_transforms, matrix_from_quat
 # Optional helper for fetching published pretrained checkpoints.
 # Not all IsaacLab versions ship this utility. We only need it when
 # `--use_pretrained_checkpoint` is enabled.
@@ -285,6 +285,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                         )
                         des_pos = des_pos_w[0].cpu().numpy()
                         des_quat = des_quat_w[0].cpu().numpy()
+                        # robot root pose (world): helps verify root/base frame alignment
+                        root_pos = robot.data.root_pos_w[0].cpu().numpy()
+                        root_quat = robot.data.root_quat_w[0].cpu().numpy()
+                        # desired pose in robot root frame (as stored in command buffer)
+                        des_pos_b_np = des_pos_b[0].cpu().numpy()
                         dist_ee_to_target_m = float(
                             torch.norm(robot.data.body_pos_w[0:1, body_idx] - des_pos_w).item()
                         )
@@ -295,11 +300,38 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                             f"[step {play_step}] dist_ee_to_target_m={dist_ee_to_target_m:.4f}  action_l2={action_l2:.4f}"
                         )
                         print(
+                            f"[RobotRoot env0] pos_w {root_pos.round(4).tolist()}  quat_w(wxyz) {root_quat.round(4).tolist()}"
+                        )
+                        print(f"[目标 env0] pos_b {des_pos_b_np.round(4).tolist()}")
+                        print(
                             f"[EE env0] pos_w {ee_pos.round(4).tolist()}  quat_w(wxyz) {ee_quat.round(4).tolist()}"
                         )
                         print(
                             f"[目标 env0] pos_w {des_pos.round(4).tolist()}  quat_w(wxyz) {des_quat.round(4).tolist()}"
                         )
+                        
+                        # Z axis alignment diagnostics (simplified orientation task)
+                        des_mat = matrix_from_quat(torch.from_numpy(des_quat).unsqueeze(0))
+                        ee_mat = matrix_from_quat(torch.from_numpy(ee_quat).unsqueeze(0))
+                        
+                        # Extract Z axis (tool direction) - column 2
+                        des_z_axis = des_mat[0, :, 2].numpy()
+                        ee_z_axis = ee_mat[0, :, 2].numpy()
+                        
+                        # Also show X/Y for reference
+                        des_x_axis = des_mat[0, :, 0].numpy()
+                        des_y_axis = des_mat[0, :, 1].numpy()
+                        ee_x_axis = ee_mat[0, :, 0].numpy()
+                        ee_y_axis = ee_mat[0, :, 1].numpy()
+                        
+                        dot_z = float(des_z_axis.dot(ee_z_axis))
+                        dot_x = float(des_x_axis.dot(ee_x_axis))
+                        dot_y = float(des_y_axis.dot(ee_y_axis))
+                        
+                        z_error = 1.0 - dot_z
+                        
+                        print(f"[Z轴对齐-主要] 目标Z={des_z_axis.round(3).tolist()}  当前Z={ee_z_axis.round(3).tolist()}  cos={dot_z:.4f}  error={z_error:.4f}")
+                        print(f"[X轴-参考] cos={dot_x:.4f}  [Y轴-参考] cos={dot_y:.4f}")
                 except (KeyError, AttributeError, IndexError, TypeError):
                     pass
             play_step += 1

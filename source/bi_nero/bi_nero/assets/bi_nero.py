@@ -22,9 +22,9 @@ import os
 # We assume the script is running from the project root or the path is reachable
 # For robustness, we can try to find the project root
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../.."))
-NERO_USD_PATH = os.path.join(PROJECT_ROOT, "nero_description/urdf/nero.usd")
+NERO_USD_PATH = os.path.join(PROJECT_ROOT, "bi_nero_description/urdf/bi_nero_description/bi_nero_description.usd")
 
-NERO_CFG = ArticulationCfg(
+BI_NERO_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
         usd_path=NERO_USD_PATH,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
@@ -39,30 +39,32 @@ NERO_CFG = ArticulationCfg(
     ),
     init_state=ArticulationCfg.InitialStateCfg(
         joint_pos={
-            "joint1": 0.0,
-            "joint2": 0.0,
-            "joint3": 0.0,
-            "joint4": 0.0,
-            "joint5": 0.0,
-            "joint6": 0.0,
-            "joint7": 0.0,
+            "left_joint1": 1.6,
+            "left_joint2": 1.2,
+            "left_joint3": 0.52,
+            "left_joint4": 0.52,
+            "left_joint5": -0.6,
+            "left_joint6": 0.0,
+            "left_joint7": 0.0,
+            "right_joint1": -1.6,
+            "right_joint2": 1.2,
+            "right_joint3": -0.52,
+            "right_joint4": 0.52,
+            "right_joint5": 0.6,
+            "right_joint6": 0.0,
+            "right_joint7": 0.0,
         },
     ),
     actuators={
-        "nero_arm": ImplicitActuatorCfg(
-            joint_names_expr=["joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "joint7"],
-            velocity_limit_sim=2.6,
+        "bi_nero_arm": ImplicitActuatorCfg(
+            joint_names_expr=["left_joint[1-7]", "right_joint[1-7]"],
+            velocity_limit_sim=2.175,#最大关节角速度
             effort_limit_sim={
-                "joint1": 28.0,
-                "joint2": 28.0,
-                "joint3": 28.0,
-                "joint4": 28.0,
-                "joint5": 28.0,
-                "joint6": 28.0,
-                "joint7": 28.0,
+                "left_joint[1-7]": 40.0,
+                "right_joint[1-7]": 40.0,
             },
-            stiffness=100.0,#P值 刚度 越大 → 越“硬”，越想马上到目标 越小 → 越“软”，动作慢但稳定 openarm 80
-            damping=10.0,#抑制速度，防止震荡 openarm 4
+            stiffness=80.0,#P值 刚度 越大 → 越“硬”，越想马上到目标 越小 → 越“软”，动作慢但稳定
+            damping=4.0,#抑制速度，防止震荡
         ),
     },
     soft_joint_pos_limit_factor=1.0,#完全使用URDF限位
@@ -70,8 +72,9 @@ NERO_CFG = ArticulationCfg(
 
 """Configuration of NERO robot."""
 
-NERO_HIGH_PD_CFG = NERO_CFG.copy()
-NERO_HIGH_PD_CFG.spawn.rigid_props.disable_gravity = True
-NERO_HIGH_PD_CFG.actuators["nero_arm"].stiffness = 400.0
-NERO_HIGH_PD_CFG.actuators["nero_arm"].damping = 100.0
-"""Configuration of neor robot with stiffer PD control."""
+BI_NERO_HIGH_PD_CFG = BI_NERO_CFG.copy()
+BI_NERO_HIGH_PD_CFG.spawn.rigid_props.disable_gravity = True
+BI_NERO_HIGH_PD_CFG.actuators["bi_nero_arm"].stiffness = 450.0
+BI_NERO_HIGH_PD_CFG.actuators["bi_nero_arm"].damping = 80.0
+"""Configuration of Bi-Nero bimanual robot with stiffer PD control."""
+
