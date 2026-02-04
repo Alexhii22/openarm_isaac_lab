@@ -24,7 +24,7 @@ from isaaclab.utils import configclass
 @configclass
 class BiNeroReachPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
-    max_iterations = 800
+    max_iterations = 1000
     save_interval = 50
     experiment_name = "bi_nero_bi_reach"
     run_name = ""

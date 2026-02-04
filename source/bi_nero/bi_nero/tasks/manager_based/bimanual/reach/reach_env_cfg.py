@@ -117,39 +117,43 @@ class ObservationsCfg:
 
     @configclass
     class PolicyCfg(ObsGroup):
-        """Observations for policy group."""
+        """观测：目标与当前末端位姿误差 + 关节速度 + 上一步动作，降低维度、直接给误差。"""
 
-        # observation terms (order preserved)
-        left_joint_pos = ObsTerm(
-            func=mdp.joint_pos_rel,
+        # 左臂：位置误差 (3) + 姿态误差 (1)
+        left_pos_error = ObsTerm(
+            func=mdp.obs_position_error,
             params={
-                "asset_cfg": SceneEntityCfg("robot", joint_names=["left_joint1",
-                                                                  "left_joint2",
-                                                                  "left_joint3",
-                                                                  "left_joint4",
-                                                                  "left_joint5",
-                                                                  "left_joint6",
-                                                                  "left_joint7",
-                                                                  ])
-            },
-            noise=Unoise(n_min=-0.001, n_max=0.001),
-        )#robot 在joint_pos_env_cfg.py 里，会对 scene.robot 赋具体配置 HIGH PD CFG
-
-        right_joint_pos = ObsTerm(
-            func=mdp.joint_pos_rel,
-            params={
-                "asset_cfg": SceneEntityCfg("robot", joint_names=["right_joint1",
-                                                                  "right_joint2",
-                                                                  "right_joint3",
-                                                                  "right_joint4",
-                                                                  "right_joint5",
-                                                                  "right_joint6",
-                                                                  "right_joint7",
-                                                                  ])
+                "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
+                "command_name": "left_ee_pose",
             },
             noise=Unoise(n_min=-0.001, n_max=0.001),
         )
-
+        left_orient_error = ObsTerm(
+            func=mdp.obs_orientation_error,
+            params={
+                "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
+                "command_name": "left_ee_pose",
+            },
+            noise=Unoise(n_min=-0.001, n_max=0.001),
+        )
+        # 右臂：位置误差 (3) + 姿态误差 (1)
+        right_pos_error = ObsTerm(
+            func=mdp.obs_position_error,
+            params={
+                "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
+                "command_name": "right_ee_pose",
+            },
+            noise=Unoise(n_min=-0.001, n_max=0.001),
+        )
+        right_orient_error = ObsTerm(
+            func=mdp.obs_orientation_error,
+            params={
+                "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
+                "command_name": "right_ee_pose",
+            },
+            noise=Unoise(n_min=-0.001, n_max=0.001),
+        )
+        # 关节速度 + 上一步动作（利于平滑与时序）
         left_joint_vel = ObsTerm(
             func=mdp.joint_vel_rel,
             params={
@@ -178,19 +182,15 @@ class ObservationsCfg:
             },
             noise=Unoise(n_min=-0.001, n_max=0.001),
         )
-        left_pose_command = ObsTerm(
-            func=mdp.generated_commands, params={"command_name": "left_ee_pose"}
+        left_actions = ObsTerm(
+            func=mdp.last_action,
+            params={"action_name": "left_arm_action"},
         )
-        right_pose_command = ObsTerm(
-            func=mdp.generated_commands, params={"command_name": "right_ee_pose"}
-        )#该步命令
-        left_actions = ObsTerm(func=mdp.last_action,
-                params={
-                "action_name": "left_arm_action"})
-        right_actions = ObsTerm(func=mdp.last_action,
-                params={
-                "action_name": "right_arm_action"})
-#上一步动作
+        right_actions = ObsTerm(
+            func=mdp.last_action,
+            params={"action_name": "right_arm_action"},
+        )
+
         def __post_init__(self):
             self.enable_corruption = True
             self.concatenate_terms = True
@@ -238,7 +238,7 @@ class RewardsCfg:
 
     left_end_effector_position_tracking_fine_grained = RewTerm(
         func=mdp.position_command_error_tanh,
-        weight=0.22,
+        weight=0.235,
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
             "std": 0.1,
@@ -248,7 +248,7 @@ class RewardsCfg:
 
     right_end_effector_position_tracking_fine_grained = RewTerm(
         func=mdp.position_command_error_tanh,
-        weight=0.22,
+        weight=0.233,
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
             "std": 0.1,
@@ -274,11 +274,33 @@ class RewardsCfg:
         },
     )
 
+    # 稀疏成功奖励（课程在 2000 步启用）：位置 < 1cm 且姿态 < 5° 给 1，否则 0
+    left_reach_success_sparse = RewTerm(
+        func=mdp.reach_success_sparse,
+        weight=0.5,
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
+            "command_name": "left_ee_pose",
+            "pos_thresh": 0.01,
+            "orient_thresh_deg": 5.0,
+        },
+    )
+    right_reach_success_sparse = RewTerm(
+        func=mdp.reach_success_sparse,
+        weight=0.5,
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
+            "command_name": "right_ee_pose",
+            "pos_thresh": 0.01,
+            "orient_thresh_deg": 5.0,
+        },
+    )
+
     # action penalty
     action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.0001)
     left_joint_vel = RewTerm(
         func=mdp.joint_vel_l2,
-        weight=-0.0001,
+        weight=-0.0002,
         params={"asset_cfg": SceneEntityCfg("robot", joint_names=["left_joint1",
                                                                     "left_joint2",
                                                                     "left_joint3",
@@ -290,7 +312,7 @@ class RewardsCfg:
     )
     right_joint_vel = RewTerm(
         func=mdp.joint_vel_l2,
-        weight=-0.0001,
+        weight=-0.0002,
         params={"asset_cfg": SceneEntityCfg("robot", joint_names=["right_joint1",
                                                                     "right_joint2",
                                                                     "right_joint3",
@@ -309,23 +331,33 @@ class TerminationsCfg:
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
 
 
-@configclass #课程配置 4500步后加入课程
+@configclass  # 课程配置：5000 步加平滑惩罚，2000 步启用稀疏成功奖励
 class CurriculumCfg:
     """Curriculum terms for the MDP."""
 
     action_rate = CurrTerm(
         func=mdp.modify_reward_weight,
-        params={"term_name": "action_rate", "weight": -0.005, "num_steps": 5000},
+        params={"term_name": "action_rate", "weight": -0.005, "num_steps": 3000},
     )
 
     left_joint_vel = CurrTerm(
         func=mdp.modify_reward_weight,
-        params={"term_name": "left_joint_vel", "weight": -0.001, "num_steps": 5000},
+        params={"term_name": "left_joint_vel", "weight": -0.001, "num_steps": 3000},
     )
 
     right_joint_vel = CurrTerm(
         func=mdp.modify_reward_weight,
-        params={"term_name": "right_joint_vel", "weight": -0.001, "num_steps": 5000},
+        params={"term_name": "right_joint_vel", "weight": -0.001, "num_steps": 3000},
+    )
+
+    # 2000 步时启用稀疏成功奖励（位置 < 1cm 且姿态 < 5° 给奖励）
+    left_reach_success_sparse = CurrTerm(
+        func=mdp.modify_reward_weight,
+        params={"term_name": "left_reach_success_sparse", "weight": 3.0, "num_steps": 2000},
+    )
+    right_reach_success_sparse = CurrTerm(
+        func=mdp.modify_reward_weight,
+        params={"term_name": "right_reach_success_sparse", "weight": 3.0, "num_steps": 2000},
     )
 
 

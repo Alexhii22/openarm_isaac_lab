@@ -14,13 +14,14 @@
 
 from __future__ import annotations
 
+import math
 import torch
 from typing import TYPE_CHECKING
 
 from isaaclab.assets import RigidObject
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils.math import combine_frame_transforms, quat_error_magnitude, quat_mul
-
+#计算得到的均为位置与姿态误差
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
@@ -75,3 +76,29 @@ def orientation_command_error(env: ManagerBasedRLEnv, command_name: str, asset_c
     des_quat_w = quat_mul(asset.data.root_quat_w, des_quat_b)
     curr_quat_w = asset.data.body_quat_w[:, asset_cfg.body_ids[0]]  # type: ignore
     return quat_error_magnitude(curr_quat_w, des_quat_w)
+
+
+def reach_success_sparse(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    asset_cfg: SceneEntityCfg,
+    pos_thresh: float = 0.01,
+    orient_thresh_deg: float = 5.0,
+) -> torch.Tensor:
+    """稀疏成功奖励：位置误差 < pos_thresh(m)，姿态误差 < orient_thresh_deg(度) 时给 1，否则 0。
+
+    用于课程：可在 num_steps 后通过 modify_reward_weight 将本项 weight 从 0 设为正值启用。
+    """
+    asset: RigidObject = env.scene[asset_cfg.name]
+    command = env.command_manager.get_command(command_name)
+    des_pos_b = command[:, :3]
+    des_quat_b = command[:, 3:7]
+    des_pos_w, _ = combine_frame_transforms(asset.data.root_pos_w, asset.data.root_quat_w, des_pos_b)
+    des_quat_w = quat_mul(asset.data.root_quat_w, des_quat_b)
+    curr_pos_w = asset.data.body_pos_w[:, asset_cfg.body_ids[0]]  # type: ignore
+    curr_quat_w = asset.data.body_quat_w[:, asset_cfg.body_ids[0]]  # type: ignore
+    pos_err = torch.norm(curr_pos_w - des_pos_w, dim=1)#绝对值平方差
+    orient_err_rad = quat_error_magnitude(curr_quat_w, des_quat_w)
+    orient_thresh_rad = orient_thresh_deg * math.pi / 180.0 #四元数误差
+    success = (pos_err < pos_thresh) & (orient_err_rad < orient_thresh_rad)
+    return success.float()

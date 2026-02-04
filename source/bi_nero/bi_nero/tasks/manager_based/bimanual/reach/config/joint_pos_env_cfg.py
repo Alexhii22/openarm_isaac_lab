@@ -69,6 +69,15 @@ class BiNeroReachEnvCfg(ReachEnvCfg):
         self.rewards.right_end_effector_position_tracking_fine_grained.params["asset_cfg"].body_names = ["right_link7"]
         self.rewards.right_end_effector_orientation_tracking.params["asset_cfg"].body_names = ["right_link7"]
 
+        self.rewards.left_reach_success_sparse.params["asset_cfg"].body_names = ["left_link7"]
+        self.rewards.right_reach_success_sparse.params["asset_cfg"].body_names = ["right_link7"]
+
+        # 观测：位姿误差对应的末端 body
+        self.observations.policy.left_pos_error.params["asset_cfg"].body_names = ["left_link7"]
+        self.observations.policy.left_orient_error.params["asset_cfg"].body_names = ["left_link7"]
+        self.observations.policy.right_pos_error.params["asset_cfg"].body_names = ["right_link7"]
+        self.observations.policy.right_orient_error.params["asset_cfg"].body_names = ["right_link7"]
+
         # override actions
         self.actions.left_arm_action = mdp.JointPositionActionCfg(
             asset_name="robot",
