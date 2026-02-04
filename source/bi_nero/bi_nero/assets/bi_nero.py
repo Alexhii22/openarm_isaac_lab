@@ -58,13 +58,13 @@ BI_NERO_CFG = ArticulationCfg(
     actuators={
         "bi_nero_arm": ImplicitActuatorCfg(
             joint_names_expr=["left_joint[1-7]", "right_joint[1-7]"],
-            velocity_limit_sim=2.175,#最大关节角速度
+            velocity_limit_sim=1.8,  # 最大关节角速度 (rad/s)，调小→整体更慢，原 2.175
             effort_limit_sim={
                 "left_joint[1-7]": 40.0,
                 "right_joint[1-7]": 40.0,
             },
-            stiffness=80.0,#P值 刚度 越大 → 越“硬”，越想马上到目标 越小 → 越“软”，动作慢但稳定
-            damping=5.0,#抑制速度，防止震荡
+            stiffness=60.0,#P值 刚度 越大 → 越“硬”，越想马上到目标 越小 → 越“软”，动作慢但稳定
+            damping=6.0,#抑制速度，防止震荡
         ),
     },
     soft_joint_pos_limit_factor=1.0,#完全使用URDF限位

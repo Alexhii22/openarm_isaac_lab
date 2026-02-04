@@ -229,7 +229,7 @@ class RewardsCfg:
 
     right_end_effector_position_tracking = RewTerm(
         func=mdp.position_command_error,
-        weight=-0.26,
+        weight=-0.24,
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
             "command_name": "right_ee_pose",
@@ -238,7 +238,7 @@ class RewardsCfg:
 
     left_end_effector_position_tracking_fine_grained = RewTerm(
         func=mdp.position_command_error_tanh,
-        weight=0.23,
+        weight=0.22,
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
             "std": 0.1,
