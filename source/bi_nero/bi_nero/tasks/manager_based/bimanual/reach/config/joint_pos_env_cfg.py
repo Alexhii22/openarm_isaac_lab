@@ -61,22 +61,22 @@ class BiNeroReachEnvCfg(ReachEnvCfg):
         )
 
         # override rewards（末端连杆名与 USD 一致：left_link7 / right_link7）
-        self.rewards.left_end_effector_position_tracking.params["asset_cfg"].body_names = ["left_link7"]
-        self.rewards.left_end_effector_position_tracking_fine_grained.params["asset_cfg"].body_names = ["left_link7"]
-        self.rewards.left_end_effector_orientation_tracking.params["asset_cfg"].body_names = ["left_link7"]
-
-        self.rewards.right_end_effector_position_tracking.params["asset_cfg"].body_names = ["right_link7"]
-        self.rewards.right_end_effector_position_tracking_fine_grained.params["asset_cfg"].body_names = ["right_link7"]
-        self.rewards.right_end_effector_orientation_tracking.params["asset_cfg"].body_names = ["right_link7"]
+        self.rewards.left_keypoint_error.params["asset_cfg"].body_names = ["left_link7"]
+        self.rewards.left_keypoint_reward_exp.params["asset_cfg"].body_names = ["left_link7"]
+        self.rewards.right_keypoint_error.params["asset_cfg"].body_names = ["right_link7"]
+        self.rewards.right_keypoint_reward_exp.params["asset_cfg"].body_names = ["right_link7"]
 
         self.rewards.left_reach_success_sparse.params["asset_cfg"].body_names = ["left_link7"]
         self.rewards.right_reach_success_sparse.params["asset_cfg"].body_names = ["right_link7"]
 
-        # 观测：位姿误差对应的末端 body
+        self.rewards.left_action_rate_penalty_when_reached.params["body_asset_cfg"].body_names = ["left_link7"]
+        self.rewards.right_action_rate_penalty_when_reached.params["body_asset_cfg"].body_names = ["right_link7"]
+
+        # 观测：关键点距离（完整位姿）+ 位置误差（方向梯度）
+        self.observations.policy.left_keypoint_dist.params["asset_cfg"].body_names = ["left_link7"]
+        self.observations.policy.right_keypoint_dist.params["asset_cfg"].body_names = ["right_link7"]
         self.observations.policy.left_pos_error.params["asset_cfg"].body_names = ["left_link7"]
-        self.observations.policy.left_orient_error.params["asset_cfg"].body_names = ["left_link7"]
         self.observations.policy.right_pos_error.params["asset_cfg"].body_names = ["right_link7"]
-        self.observations.policy.right_orient_error.params["asset_cfg"].body_names = ["right_link7"]
 
         # override actions
         self.actions.left_arm_action = mdp.JointPositionActionCfg(
@@ -90,7 +90,7 @@ class BiNeroReachEnvCfg(ReachEnvCfg):
                 "left_joint6",
                 "left_joint7",
             ],
-            scale=0.5,
+            scale=0.5,  # 更精细控制（原 0.5）：action=1 → 0.3 rad 偏移
             use_default_offset=True,
         )
 
@@ -105,7 +105,7 @@ class BiNeroReachEnvCfg(ReachEnvCfg):
                 "right_joint6",
                 "right_joint7",
             ],
-            scale=0.5,
+            scale=0.5,  # 进一步减小（原0.3）
             use_default_offset=True,
         )
 

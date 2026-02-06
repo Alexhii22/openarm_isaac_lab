@@ -43,6 +43,12 @@ parser.add_argument(
     help="Use the pre-trained checkpoint from Nucleus.",
 )
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
+parser.add_argument(
+    "--sim2sim_output",
+    type=str,
+    default=None,
+    help="If set, decode actions to Bi-Nero joint positions (rad) and write to this file each step for sim2sim (e.g. ROS bridge).",
+)
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -204,6 +210,15 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         with torch.inference_mode():
             # agent stepping
             actions = policy(obs)
+            # sim2sim: write decoded joint positions to file for ROS bridge
+            if getattr(args_cli, "sim2sim_output", None):
+                try:
+                    from bi_nero.tasks.manager_based.bimanual.reach.sim2sim_joint_writer import (
+                        write_joints_to_file_from_actions,
+                    )
+                    write_joints_to_file_from_actions(actions, args_cli.sim2sim_output)
+                except Exception:
+                    pass
             # env stepping
             obs, _, _, _ = env.step(actions)
         if args_cli.video:

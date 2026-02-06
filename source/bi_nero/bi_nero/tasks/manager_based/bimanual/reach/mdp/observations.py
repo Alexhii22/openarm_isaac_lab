@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""观测：目标位姿与当前末端位姿的误差，直接作为状态输入，降低维度、省略模型隐式推算。"""
+"""观测：以相对 SE(3) 几何误差为核心，与关键点奖励一致；弱化绝对世界量。"""
 
 from __future__ import annotations
 
@@ -22,6 +22,8 @@ from typing import TYPE_CHECKING
 from isaaclab.assets import RigidObject
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils.math import combine_frame_transforms, quat_mul
+
+from .rewards import compute_keypoint_distance
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -69,3 +71,43 @@ def obs_orientation_error(
     # 误差四元数：从当前到目标 = des * curr^{-1}
     err_quat = quat_mul(des_quat_w, _quat_inv(curr_quat_w))
     return _quat_to_axis_angle(err_quat)
+
+
+def last_action_scaled(env: ManagerBasedRLEnv, action_name: str) -> torch.Tensor:
+    """返回上一步动作的 processed_actions，即已乘以 scale 的实际关节偏移量（rad）。
+
+    与 joint_pos_rel 尺度一致：
+    - joint_pos_rel: 当前关节位置 - 默认位置 (rad)
+    - last_action_scaled: 上一步期望的关节偏移量 (rad) = raw_action × scale
+
+    这样策略可以直接比较"上一步想去哪"和"现在在哪"。
+    shape (num_envs, action_dim)，如 (N, 7)。
+    """
+    term = env.action_manager.get_term(action_name)
+    return term.processed_actions
+
+
+def obs_keypoint_distance(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    asset_cfg: SceneEntityCfg,
+    keypoint_scale: float = 1.0,
+    add_cube_center_kp: bool = True,
+) -> torch.Tensor:
+    """相对 SE(3) 几何误差：当前与目标末端对应关键点的 L2 距离，与关键点奖励一致。
+
+    无绝对世界位姿，仅相对几何。shape (num_envs, num_keypoints)，如 (N, 7)。"""
+    asset: RigidObject = env.scene[asset_cfg.name]
+    command = env.command_manager.get_command(command_name)
+    des_pos_b = command[:, :3]
+    des_quat_b = command[:, 3:7]
+    des_pos_w, _ = combine_frame_transforms(
+        asset.data.root_pos_w, asset.data.root_quat_w, des_pos_b
+    )
+    des_quat_w = quat_mul(asset.data.root_quat_w, des_quat_b)
+    curr_pos_w = asset.data.body_pos_w[:, asset_cfg.body_ids[0]]  # type: ignore
+    curr_quat_w = asset.data.body_quat_w[:, asset_cfg.body_ids[0]]  # type: ignore
+    return compute_keypoint_distance(
+        curr_pos_w, curr_quat_w, des_pos_w, des_quat_w,
+        keypoint_scale=keypoint_scale, add_cube_center_kp=add_cube_center_kp,
+    )

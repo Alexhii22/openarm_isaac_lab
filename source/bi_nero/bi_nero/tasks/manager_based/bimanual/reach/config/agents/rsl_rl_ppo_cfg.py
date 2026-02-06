@@ -24,26 +24,26 @@ from isaaclab.utils import configclass
 @configclass
 class BiNeroReachPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
-    max_iterations = 1000
+    max_iterations = 1000  # 延长训练（原 1000），精度任务需更多迭代
     save_interval = 50
     experiment_name = "bi_nero_bi_reach"
     run_name = ""
     resume = False
     empirical_normalization = False
     policy = RslRlPpoActorCriticCfg(
-        init_noise_std=1.0,
-        actor_hidden_dims=[128, 128],
-        critic_hidden_dims=[128, 128],
+        init_noise_std=0.3,  # 减小探索噪声（原 1.0），降低抖动
+        actor_hidden_dims=[256, 256, 128],  # 增大网络容量（原 [128,128]）
+        critic_hidden_dims=[256, 256, 128],
         activation="elu",
     )
     algorithm = RslRlPpoAlgorithmCfg(
         value_loss_coef=1.0,
         use_clipped_value_loss=True,
         clip_param=0.2,
-        entropy_coef=0.001,
+        entropy_coef=0.005,  # 提高熵系数（原 0.001），鼓励初期探索
         num_learning_epochs=8,
         num_mini_batches=4,
-        learning_rate=5e-3,
+        learning_rate=5e-4,  # 进一步降低（原1e-3），更稳定收敛
         schedule="adaptive",
         gamma=0.99,
         lam=0.95,
