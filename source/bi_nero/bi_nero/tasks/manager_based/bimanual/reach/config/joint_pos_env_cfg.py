@@ -60,52 +60,57 @@ class BiNeroReachEnvCfg(ReachEnvCfg):
             ),
         )
 
-        # override rewards（末端连杆名与 USD 一致：left_link7 / right_link7）
-        self.rewards.left_keypoint_error.params["asset_cfg"].body_names = ["left_link7"]
-        self.rewards.left_keypoint_reward_exp.params["asset_cfg"].body_names = ["left_link7"]
-        self.rewards.right_keypoint_error.params["asset_cfg"].body_names = ["right_link7"]
-        self.rewards.right_keypoint_reward_exp.params["asset_cfg"].body_names = ["right_link7"]
+        # override rewards：左臂 left_link7，右臂 right_link7
+        for name in (
+            "left_keypoint_error_x",
+            "left_keypoint_error_y",
+            "left_keypoint_error_z",
+            "left_keypoint_tracking_tanh_x",
+            "left_keypoint_tracking_tanh_y",
+            "left_keypoint_tracking_tanh_z",
+            "left_reach_success_sparse",
+        ):
+            getattr(self.rewards, name).params["asset_cfg"].body_names = ["left_link7"]
+        for name in (
+            "right_keypoint_error_x",
+            "right_keypoint_error_y",
+            "right_keypoint_error_z",
+            "right_keypoint_tracking_tanh_x",
+            "right_keypoint_tracking_tanh_y",
+            "right_keypoint_tracking_tanh_z",
+            "right_reach_success_sparse",
+        ):
+            getattr(self.rewards, name).params["asset_cfg"].body_names = ["right_link7"]
 
-        self.rewards.left_reach_success_sparse.params["asset_cfg"].body_names = ["left_link7"]
-        self.rewards.right_reach_success_sparse.params["asset_cfg"].body_names = ["right_link7"]
+        # 观测：世界系关键点（body_names）
+        getattr(self.observations.policy, "left_keypoints_error_world").params["asset_cfg"].body_names = ["left_link7"]
+        getattr(self.observations.policy, "right_keypoints_error_world").params["asset_cfg"].body_names = ["right_link7"]
 
-        self.rewards.left_action_rate_penalty_when_reached.params["body_asset_cfg"].body_names = ["left_link7"]
-        self.rewards.right_action_rate_penalty_when_reached.params["body_asset_cfg"].body_names = ["right_link7"]
-
-        # 观测：关键点距离（完整位姿）+ 位置误差（方向梯度）
-        self.observations.policy.left_keypoint_dist.params["asset_cfg"].body_names = ["left_link7"]
-        self.observations.policy.right_keypoint_dist.params["asset_cfg"].body_names = ["right_link7"]
-        self.observations.policy.left_pos_error.params["asset_cfg"].body_names = ["left_link7"]
-        self.observations.policy.right_pos_error.params["asset_cfg"].body_names = ["right_link7"]
+        # 关节上一时刻位置：默认关节角（与 init_state 一致）
+        self.observations.policy.left_joint_prev_pos.params["default_joint_pos"] = [
+            1.6, 1.2, 0.52, 0.52, -0.6, 0.0, 0.0,
+        ]
+        self.observations.policy.right_joint_prev_pos.params["default_joint_pos"] = [
+            -1.6, 1.2, -0.52, 0.52, 0.6, 0.0, 0.0,
+        ]
 
         # override actions
         self.actions.left_arm_action = mdp.JointPositionActionCfg(
             asset_name="robot",
             joint_names=[
-                "left_joint1",
-                "left_joint2",
-                "left_joint3",
-                "left_joint4",
-                "left_joint5",
-                "left_joint6",
-                "left_joint7",
+                "left_joint1", "left_joint2", "left_joint3", "left_joint4",
+                "left_joint5", "left_joint6", "left_joint7",
             ],
-            scale=0.5,  # 更精细控制（原 0.5）：action=1 → 0.3 rad 偏移
+            scale=0.5,
             use_default_offset=True,
         )
-
         self.actions.right_arm_action = mdp.JointPositionActionCfg(
             asset_name="robot",
             joint_names=[
-                "right_joint1",
-                "right_joint2",
-                "right_joint3",
-                "right_joint4",
-                "right_joint5",
-                "right_joint6",
-                "right_joint7",
+                "right_joint1", "right_joint2", "right_joint3", "right_joint4",
+                "right_joint5", "right_joint6", "right_joint7",
             ],
-            scale=0.5,  # 进一步减小（原0.3）
+            scale=0.5,
             use_default_offset=True,
         )
 

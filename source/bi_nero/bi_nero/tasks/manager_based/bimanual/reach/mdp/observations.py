@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""观测：以相对 SE(3) 几何误差为核心，与关键点奖励一致；弱化绝对世界量。"""
+"""观测：世界坐标系下的末端关键点、末端/目标位置、关节绝对位置与速度，便于 sim2real。"""
 
 from __future__ import annotations
 
@@ -23,80 +23,67 @@ from isaaclab.assets import RigidObject
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils.math import combine_frame_transforms, quat_mul
 
-from .rewards import compute_keypoint_distance
+from .rewards import get_keypoint_offsets_full_6d
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
 
-def _quat_inv(q: torch.Tensor) -> torch.Tensor:
-    """单位四元数求逆 (共轭)：q=(w,x,y,z) -> (w,-x,-y,-z)。"""
-    return torch.cat([q[..., 0:1], -q[..., 1:4]], dim=-1)
-
-
-def _quat_to_axis_angle(q: torch.Tensor) -> torch.Tensor:
-    """四元数 q=(w,x,y,z) 转为轴角 (3D)：方向=旋转轴，模长=弧度。shape (N, 3)。"""
-    w = q[..., 0:1].clamp(-1.0, 1.0)
-    xyz = q[..., 1:4]
-    angle = 2.0 * torch.acos(w)
-    sin_half = torch.sin(angle / 2.0).clamp(min=1e-8)
-    scale = torch.where(angle.abs() < 1e-6, torch.ones_like(sin_half) * 2.0, angle / sin_half)
-    return xyz * scale
-
-
-def obs_position_error(
-    env: ManagerBasedRLEnv, command_name: str, asset_cfg: SceneEntityCfg
+def _keypoints_in_world(
+    pos_w: torch.Tensor,
+    quat_w: torch.Tensor,
+    keypoint_scale: float,
+    add_negative_axes: bool,
+    device: torch.device,
 ) -> torch.Tensor:
-    """位置误差 (3D)：目标位置 - 当前末端位置（世界系），单位 m。shape (num_envs, 3)。"""
-    asset: RigidObject = env.scene[asset_cfg.name]
-    command = env.command_manager.get_command(command_name)
-    des_pos_b = command[:, :3]
-    des_pos_w, _ = combine_frame_transforms(
-        asset.data.root_pos_w, asset.data.root_quat_w, des_pos_b
-    )
-    curr_pos_w = asset.data.body_pos_w[:, asset_cfg.body_ids[0]]  # type: ignore
-    return des_pos_w - curr_pos_w
+    """将末端坐标系下 3 个正轴关键点变换到世界系。返回 (num_envs, 9)。"""
+    offsets = get_keypoint_offsets_full_6d(
+        add_cube_center_kp=False,
+        add_negative_axes=add_negative_axes,
+        device=device,
+    ) * keypoint_scale
+    num_envs = pos_w.shape[0]
+    identity_quat = torch.tensor(
+        [1.0, 0.0, 0.0, 0.0], device=device, dtype=torch.float32
+    ).unsqueeze(0).expand(num_envs, 4)
+    kp_world = []
+    for i in range(offsets.shape[0]):
+        offset = offsets[i].unsqueeze(0).expand(num_envs, 3)
+        p, _ = combine_frame_transforms(pos_w, quat_w, offset, identity_quat)
+        kp_world.append(p)
+    return torch.cat(kp_world, dim=-1)
 
 
-def obs_orientation_error(
-    env: ManagerBasedRLEnv, command_name: str, asset_cfg: SceneEntityCfg
-) -> torch.Tensor:
-    """姿态误差 (3D 轴角)：从当前末端到目标姿态的旋转，轴角表示 (弧度)。
-    向量方向=旋转轴，模长=旋转角。shape (num_envs, 3)。"""
-    asset: RigidObject = env.scene[asset_cfg.name]
-    command = env.command_manager.get_command(command_name)
-    des_quat_b = command[:, 3:7]
-    des_quat_w = quat_mul(asset.data.root_quat_w, des_quat_b)
-    curr_quat_w = asset.data.body_quat_w[:, asset_cfg.body_ids[0]]  # type: ignore
-    # 误差四元数：从当前到目标 = des * curr^{-1}
-    err_quat = quat_mul(des_quat_w, _quat_inv(curr_quat_w))
-    return _quat_to_axis_angle(err_quat)
+# ----- 世界坐标系观测（sim2real 友好）-----
 
-
-def last_action_scaled(env: ManagerBasedRLEnv, action_name: str) -> torch.Tensor:
-    """返回上一步动作的 processed_actions，即已乘以 scale 的实际关节偏移量（rad）。
-
-    与 joint_pos_rel 尺度一致：
-    - joint_pos_rel: 当前关节位置 - 默认位置 (rad)
-    - last_action_scaled: 上一步期望的关节偏移量 (rad) = raw_action × scale
-
-    这样策略可以直接比较"上一步想去哪"和"现在在哪"。
-    shape (num_envs, action_dim)，如 (N, 7)。
-    """
-    term = env.action_manager.get_term(action_name)
-    return term.processed_actions
-
-
-def obs_keypoint_distance(
+def obs_ee_keypoints_world(
     env: ManagerBasedRLEnv,
     command_name: str,
     asset_cfg: SceneEntityCfg,
-    keypoint_scale: float = 1.0,
-    add_cube_center_kp: bool = True,
+    keypoint_scale: float = 0.25,
+    add_negative_axes: bool = False,
 ) -> torch.Tensor:
-    """相对 SE(3) 几何误差：当前与目标末端对应关键点的 L2 距离，与关键点奖励一致。
+    """末端三轴关键点在世界系下的坐标（仅正轴 3 点：X+/Y+/Z+）。
 
-    无绝对世界位姿，仅相对几何。shape (num_envs, num_keypoints)，如 (N, 7)。"""
+    shape (num_envs, 9)，即 3 点 × (x,y,z) 单位 m。"""
+    asset: RigidObject = env.scene[asset_cfg.name]
+    curr_pos_w = asset.data.body_pos_w[:, asset_cfg.body_ids[0]]  # type: ignore
+    curr_quat_w = asset.data.body_quat_w[:, asset_cfg.body_ids[0]]  # type: ignore
+    return _keypoints_in_world(
+        curr_pos_w, curr_quat_w, keypoint_scale, add_negative_axes, curr_pos_w.device
+    )
+
+
+def obs_target_keypoints_world(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    asset_cfg: SceneEntityCfg,
+    keypoint_scale: float = 0.25,
+    add_negative_axes: bool = False,
+) -> torch.Tensor:
+    """目标三轴关键点在世界系下的坐标（仅正轴 3 点）。
+
+    shape (num_envs, 9)，单位 m。"""
     asset: RigidObject = env.scene[asset_cfg.name]
     command = env.command_manager.get_command(command_name)
     des_pos_b = command[:, :3]
@@ -105,9 +92,102 @@ def obs_keypoint_distance(
         asset.data.root_pos_w, asset.data.root_quat_w, des_pos_b
     )
     des_quat_w = quat_mul(asset.data.root_quat_w, des_quat_b)
-    curr_pos_w = asset.data.body_pos_w[:, asset_cfg.body_ids[0]]  # type: ignore
-    curr_quat_w = asset.data.body_quat_w[:, asset_cfg.body_ids[0]]  # type: ignore
-    return compute_keypoint_distance(
-        curr_pos_w, curr_quat_w, des_pos_w, des_quat_w,
-        keypoint_scale=keypoint_scale, add_cube_center_kp=add_cube_center_kp,
+    return _keypoints_in_world(
+        des_pos_w, des_quat_w, keypoint_scale, add_negative_axes, des_pos_w.device
     )
+
+
+def obs_keypoints_error_world(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    asset_cfg: SceneEntityCfg,
+    keypoint_scale: float = 0.25,
+    add_negative_axes: bool = False,
+) -> torch.Tensor:
+    """关键点误差（世界系）：target_keypoints - ee_keypoints。
+
+    让策略显式看到每个关键点的 (x,y,z) 误差，避免只靠标量距离导致“混在一起”的梯度弱问题。
+
+    shape (num_envs, 9)，单位 m。
+    """
+    ee = obs_ee_keypoints_world(
+        env=env,
+        command_name=command_name,
+        asset_cfg=asset_cfg,
+        keypoint_scale=keypoint_scale,
+        add_negative_axes=add_negative_axes,
+    )
+    tgt = obs_target_keypoints_world(
+        env=env,
+        command_name=command_name,
+        asset_cfg=asset_cfg,
+        keypoint_scale=keypoint_scale,
+        add_negative_axes=add_negative_axes,
+    )
+    return tgt - ee
+
+
+def obs_ee_position_world(
+    env: ManagerBasedRLEnv, command_name: str, asset_cfg: SceneEntityCfg
+) -> torch.Tensor:
+    """末端位置在世界系下的坐标。shape (num_envs, 3)，单位 m。"""
+    asset: RigidObject = env.scene[asset_cfg.name]
+    return asset.data.body_pos_w[:, asset_cfg.body_ids[0]]  # type: ignore
+
+
+def obs_target_position_world(
+    env: ManagerBasedRLEnv, command_name: str, asset_cfg: SceneEntityCfg
+) -> torch.Tensor:
+    """目标位置在世界系下的坐标。shape (num_envs, 3)，单位 m。"""
+    asset: RigidObject = env.scene[asset_cfg.name]
+    command = env.command_manager.get_command(command_name)
+    des_pos_b = command[:, :3]
+    des_pos_w, _ = combine_frame_transforms(
+        asset.data.root_pos_w, asset.data.root_quat_w, des_pos_b
+    )
+    return des_pos_w
+
+
+def _get_joint_ids(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg):
+    """从 asset 解析 joint_ids（框架可能已设置，否则用 find_joints）。"""
+    asset = env.scene[asset_cfg.name]
+    if hasattr(asset_cfg, "joint_ids") and getattr(asset_cfg, "joint_ids", None) is not None:
+        return asset_cfg.joint_ids  # type: ignore
+    joint_ids, _ = asset.find_joints(asset_cfg.joint_names, preserve_order=True)  # type: ignore
+    return joint_ids
+
+
+def obs_joint_pos_absolute(
+    env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg
+) -> torch.Tensor:
+    """关节当前位置（绝对角度），单位 rad。shape (num_envs, joint_dim)。"""
+    asset = env.scene[asset_cfg.name]
+    joint_ids = _get_joint_ids(env, asset_cfg)
+    return asset.data.joint_pos[:, joint_ids]  # type: ignore
+
+
+def obs_joint_vel(
+    env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg
+) -> torch.Tensor:
+    """关节当前速度，单位 rad/s。shape (num_envs, joint_dim)。"""
+    asset = env.scene[asset_cfg.name]
+    joint_ids = _get_joint_ids(env, asset_cfg)
+    return asset.data.joint_vel[:, joint_ids]  # type: ignore
+
+
+def obs_joint_prev_pos(
+    env: ManagerBasedRLEnv,
+    action_name: str,
+    asset_cfg: SceneEntityCfg,
+    default_joint_pos: list[float],
+) -> torch.Tensor:
+    """上一时刻关节位置（绝对）：用上一步指令目标近似，即 default + processed_action。
+
+    shape (num_envs, joint_dim)，单位 rad。"""
+    term = env.action_manager.get_term(action_name)
+    processed = term.processed_actions
+    device = processed.device
+    default = torch.tensor(
+        default_joint_pos, device=device, dtype=processed.dtype
+    ).unsqueeze(0).expand(processed.shape[0], -1)
+    return default + processed

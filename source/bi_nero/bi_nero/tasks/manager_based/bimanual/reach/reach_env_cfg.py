@@ -71,21 +71,6 @@ class ReachSceneCfg(InteractiveSceneCfg):
 class CommandsCfg:
     """Command terms for the MDP."""
 
-    right_ee_pose = mdp.UniformPoseCommandCfg(
-        asset_name="robot",
-        body_name=MISSING,
-        resampling_time_range=(4.0, 4.0),
-        debug_vis=True,
-        ranges=mdp.UniformPoseCommandCfg.Ranges(
-            pos_x=(0.15, 0.3),
-            pos_y=(0.15, 0.25),
-            pos_z=(0.3, 0.4),
-            roll=(-math.pi / 9, math.pi / 9), #-30-30
-            pitch=(math.pi+3 * math.pi / 2 + math.pi/2, math.pi + 3 * math.pi / 2 + math.pi/2),#恒定朝向
-            yaw=(9.6 * math.pi / 10, 10.4 * math.pi / 10),
-        ),
-    )
-
     left_ee_pose = mdp.UniformPoseCommandCfg(
         asset_name="robot",
         body_name=MISSING,
@@ -98,6 +83,20 @@ class CommandsCfg:
             roll=(-math.pi / 9, math.pi / 9),#恒定朝向 （-30 30)
             pitch=(3 * math.pi / 2+math.pi/2, 3 * math.pi / 2+math.pi/2),#360
             yaw=(math.pi+9.5 * math.pi / 10, 2*math.pi),#351-360
+        ),
+    )
+    right_ee_pose = mdp.UniformPoseCommandCfg(
+        asset_name="robot",
+        body_name=MISSING,
+        resampling_time_range=(4.0, 4.0),
+        debug_vis=True,
+        ranges=mdp.UniformPoseCommandCfg.Ranges(
+            pos_x=(0.15, 0.3),
+            pos_y=(0.15, 0.25),
+            pos_z=(0.3, 0.4),
+            roll=(-math.pi / 9, math.pi / 9),
+            pitch=(math.pi+3 * math.pi / 2 + math.pi/2, math.pi + 3 * math.pi / 2 + math.pi/2),
+            yaw=(9.6 * math.pi / 10, 10.4 * math.pi / 10),
         ),
     )
 
@@ -116,121 +115,115 @@ class ObservationsCfg:
 
     @configclass
     class PolicyCfg(ObsGroup):
-        """观测：关键点距离（完整位姿约束）+ 位置误差（方向信号）。
-    
+        """观测：双臂，世界坐标系 + 关节绝对位置，便于 sim2real。
+
+        - 左/右：关键点误差(世界) 9D、关节当前位置、速度、上一时刻位置
         """
 
-        # ===== 核心：关键点距离 (7D) =====
-        # 提供完整的位姿几何约束，旋转信息隐含在7个点的相对关系中
-        left_keypoint_dist = ObsTerm(
-            func=mdp.obs_keypoint_distance,
+        # ----- 左臂：末端关键点(世界) 9D -----
+        # left_ee_keypoints_world = ObsTerm(
+        #     func=mdp.obs_ee_keypoints_world,
+        #     params={
+        #         "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
+        #         "command_name": "left_ee_pose",
+        #         "keypoint_scale": 0.25,
+        #         "add_negative_axes": False,
+        #     },
+        #     noise=Unoise(n_min=-0.001, n_max=0.001),
+        # )
+        # left_target_keypoints_world = ObsTerm(
+        #     func=mdp.obs_target_keypoints_world,
+        #     params={
+        #         "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
+        #         "command_name": "left_ee_pose",
+        #         "keypoint_scale": 0.25,
+        #         "add_negative_axes": False,
+        #     },
+        #     noise=Unoise(n_min=-0.001, n_max=0.001),
+        # )
+        # 关键点误差(世界) 9D：让策略显式知道每个轴向差距
+        left_keypoints_error_world = ObsTerm(
+            func=mdp.obs_keypoints_error_world,
             params={
                 "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
                 "command_name": "left_ee_pose",
                 "keypoint_scale": 0.25,
-                "add_cube_center_kp": True,
+                "add_negative_axes": False,
             },
             noise=Unoise(n_min=-0.001, n_max=0.001),
         )
-        left_pos_error = ObsTerm(
-            func=mdp.obs_position_error,
+        # ----- 右臂：关键点误差 9D + 关节状态 -----
+        right_keypoints_error_world = ObsTerm(
+            func=mdp.obs_keypoints_error_world,
             params={
                 "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
-                "command_name": "left_ee_pose",
+                "command_name": "right_ee_pose",
+                "keypoint_scale": 0.25,
+                "add_negative_axes": False,
             },
-            noise=Unoise(n_min=-0.002, n_max=0.002),
+            noise=Unoise(n_min=-0.001, n_max=0.001),
         )
         left_joint_pos = ObsTerm(
-            func=mdp.joint_pos_rel,
+            func=mdp.obs_joint_pos_absolute,
             params={
-                "asset_cfg": SceneEntityCfg("robot", joint_names=["left_joint1",
-                                                                  "left_joint2",
-                                                                  "left_joint3",
-                                                                  "left_joint4",
-                                                                  "left_joint5",
-                                                                  "left_joint6",
-                                                                  "left_joint7",
-                                                                  ]),
+                "asset_cfg": SceneEntityCfg("robot", joint_names=[
+                    "left_joint1", "left_joint2", "left_joint3", "left_joint4",
+                    "left_joint5", "left_joint6", "left_joint7",
+                ]),
             },
             noise=Unoise(n_min=-0.001, n_max=0.001),
         )
         left_joint_vel = ObsTerm(
-            func=mdp.joint_vel_rel,
+            func=mdp.obs_joint_vel,
             params={
-                "asset_cfg": SceneEntityCfg("robot", joint_names=["left_joint1",
-                                                                  "left_joint2",
-                                                                  "left_joint3",
-                                                                  "left_joint4",
-                                                                  "left_joint5",
-                                                                  "left_joint6",
-                                                                  "left_joint7",
-                                                                  ])
+                "asset_cfg": SceneEntityCfg("robot", joint_names=[
+                    "left_joint1", "left_joint2", "left_joint3", "left_joint4",
+                    "left_joint5", "left_joint6", "left_joint7",
+                ]),
             },
             noise=Unoise(n_min=-0.001, n_max=0.001),
         )
-        left_actions = ObsTerm(
-            func=mdp.last_action_scaled,
-            params={"action_name": "left_arm_action"},
-        )
-        right_keypoint_dist = ObsTerm(
-            func=mdp.obs_keypoint_distance,
+        left_joint_prev_pos = ObsTerm(
+            func=mdp.obs_joint_prev_pos,
             params={
-                "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
-                "command_name": "right_ee_pose",
-                "keypoint_scale": 0.25,
-                "add_cube_center_kp": True,
+                "action_name": "left_arm_action",
+                "asset_cfg": SceneEntityCfg("robot", joint_names=[
+                    "left_joint1", "left_joint2", "left_joint3", "left_joint4",
+                    "left_joint5", "left_joint6", "left_joint7",
+                ]),
+                "default_joint_pos": MISSING,
             },
-            noise=Unoise(n_min=-0.001, n_max=0.001),
         )
-
-        # ===== 补充：位置误差 (3D) =====
-        # 显式提供"往哪个方向移动"的梯度信号，加速平移学习
-        
-        right_pos_error = ObsTerm(
-            func=mdp.obs_position_error,
-            params={
-                "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
-                "command_name": "right_ee_pose",
-            },
-            noise=Unoise(n_min=-0.002, n_max=0.002),
-        )
-        # 当前关节形态（相对默认位姿），利于策略利用构型信息
-        
         right_joint_pos = ObsTerm(
-            func=mdp.joint_pos_rel,
+            func=mdp.obs_joint_pos_absolute,
             params={
-                "asset_cfg": SceneEntityCfg("robot", joint_names=["right_joint1",
-                                                                   "right_joint2",
-                                                                   "right_joint3",
-                                                                   "right_joint4",
-                                                                   "right_joint5",
-                                                                   "right_joint6",
-                                                                   "right_joint7",
-                                                                   ]),
+                "asset_cfg": SceneEntityCfg("robot", joint_names=[
+                    "right_joint1", "right_joint2", "right_joint3", "right_joint4",
+                    "right_joint5", "right_joint6", "right_joint7",
+                ]),
             },
             noise=Unoise(n_min=-0.001, n_max=0.001),
         )
-        # 关节速度 + 上一步动作（利于平滑与时序）
-        
         right_joint_vel = ObsTerm(
-            func=mdp.joint_vel_rel,
+            func=mdp.obs_joint_vel,
             params={
-                "asset_cfg": SceneEntityCfg("robot", joint_names=["right_joint1",
-                                                                  "right_joint2",
-                                                                  "right_joint3",
-                                                                  "right_joint4",
-                                                                  "right_joint5",
-                                                                  "right_joint6",
-                                                                  "right_joint7",
-                                                                  ])
+                "asset_cfg": SceneEntityCfg("robot", joint_names=[
+                    "right_joint1", "right_joint2", "right_joint3", "right_joint4",
+                    "right_joint5", "right_joint6", "right_joint7",
+                ]),
             },
             noise=Unoise(n_min=-0.001, n_max=0.001),
         )
-        # 上一步动作（已乘 scale，与 joint_pos_rel 尺度一致，都是实际弧度偏移）
-        
-        right_actions = ObsTerm(
-            func=mdp.last_action_scaled,
-            params={"action_name": "right_arm_action"},
+        right_joint_prev_pos = ObsTerm(
+            func=mdp.obs_joint_prev_pos,
+            params={
+                "action_name": "right_arm_action",
+                "asset_cfg": SceneEntityCfg("robot", joint_names=[
+                    "right_joint1", "right_joint2", "right_joint3", "right_joint4",
+                    "right_joint5", "right_joint6", "right_joint7",
+                ]),
+                "default_joint_pos": MISSING,
+            },
         )
 
         def __post_init__(self):
@@ -257,127 +250,212 @@ class EventCfg:
 
 @configclass
 class RewardsCfg:
-    """Reward terms for the MDP."""
+    
+    """双臂：reward 基于关键点距离（左/右臂对称设计，参考 openarm 的 tanh kernel 思路）。"""
 
-    # ===== 核心任务奖励：关键点（统一位姿）+ 显式姿态 =====
-    left_keypoint_error = RewTerm(
-        func=mdp.keypoint_command_error,
-        weight=-0.4,
+    # 轴向线性惩罚（密集）：权重加大，避免“到一定距离就不往近了走”
+    # keypoint_scale：关键点沿轴长度(m)，即末端+scale*轴方向的点，非精度阈值
+    left_keypoint_error_x = RewTerm(
+        func=mdp.keypoint_command_error_axis,
+        weight=-0.6,
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
             "command_name": "left_ee_pose",
+            "axis": "x",
             "keypoint_scale": 0.25,
-            "add_cube_center_kp": True,
+            "add_cube_center_kp": False,
+            "add_negative_axes": False,
         },
     )
-    left_keypoint_reward_exp = RewTerm(
-        func=mdp.keypoint_command_reward_exp,
+    left_keypoint_error_y = RewTerm(
+        func=mdp.keypoint_command_error_axis,
+        weight=-0.6,
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
+            "command_name": "left_ee_pose",
+            "axis": "y",
+            "keypoint_scale": 0.25,
+            "add_cube_center_kp": False,
+            "add_negative_axes": False,
+        },
+    )
+    left_keypoint_error_z = RewTerm(
+        func=mdp.keypoint_command_error_axis,
+        weight=-0.6,
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
+            "command_name": "left_ee_pose",
+            "axis": "z",
+            "keypoint_scale": 0.25,
+            "add_cube_center_kp": False,
+            "add_negative_axes": False,
+        },
+    )
+
+    # 轴向 tanh：std 调小，近距离梯度才够大，否则会停在“恒定距离”不再靠近
+    left_keypoint_tracking_tanh_x = RewTerm(
+        func=mdp.keypoint_command_error_axis_tanh,
+        weight=0.25,
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
+            "std": 0.1,  
+            "command_name": "left_ee_pose",
+            "axis": "x",
+            "keypoint_scale": 0.25,
+            "add_cube_center_kp": False,
+            "add_negative_axes": False,
+        },
+    )
+    left_keypoint_tracking_tanh_y = RewTerm(
+        func=mdp.keypoint_command_error_axis_tanh,
+        weight=0.25,
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
+            "std": 0.1,
+            "command_name": "left_ee_pose",
+            "axis": "y",
+            "keypoint_scale": 0.25,
+            "add_cube_center_kp": False,
+            "add_negative_axes": False,
+        },
+    )
+    left_keypoint_tracking_tanh_z = RewTerm(
+        func=mdp.keypoint_command_error_axis_tanh,
+        weight=0.25,
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
+            "std": 0.1,
+            "command_name": "left_ee_pose",
+            "axis": "z",
+            "keypoint_scale": 0.25,
+            "add_cube_center_kp": False,
+            "add_negative_axes": False,
+        },
+    )
+
+    # 稀疏奖励：三关键点误差同时 < 1cm 时给固定奖励，鼓励高精度
+    left_reach_success_sparse = RewTerm(
+        func=mdp.reach_success_sparse_keypoints,
+        weight=2.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
+            "command_name": "left_ee_pose",
+            "keypoint_thresh": 0.02,
+            "keypoint_scale": 0.25,
+            "add_cube_center_kp": False,
+            "add_negative_axes": False,
+        },
+    )
+
+    # ----- 右臂：轴向惩罚 + tanh + 稀疏 + 关节速度 -----
+    right_keypoint_error_x = RewTerm(
+        func=mdp.keypoint_command_error_axis,
+        weight=-0.6,
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
+            "command_name": "right_ee_pose",
+            "axis": "x",
+            "keypoint_scale": 0.25,
+            "add_cube_center_kp": False,
+            "add_negative_axes": False,
+        },
+    )
+    right_keypoint_error_y = RewTerm(
+        func=mdp.keypoint_command_error_axis,
+        weight=-0.6,
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
+            "command_name": "right_ee_pose",
+            "axis": "y",
+            "keypoint_scale": 0.25,
+            "add_cube_center_kp": False,
+            "add_negative_axes": False,
+        },
+    )
+    right_keypoint_error_z = RewTerm(
+        func=mdp.keypoint_command_error_axis,
+        weight=-0.7,
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
+            "command_name": "right_ee_pose",
+            "axis": "z",
+            "keypoint_scale": 0.25,
+            "add_cube_center_kp": False,
+            "add_negative_axes": False,
+        },
+    )
+    right_keypoint_tracking_tanh_x = RewTerm(
+        func=mdp.keypoint_command_error_axis_tanh,
+        weight=0.25,
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
+            "std": 0.1,
+            "command_name": "right_ee_pose",
+            "axis": "x",
+            "keypoint_scale": 0.25,
+            "add_cube_center_kp": False,
+            "add_negative_axes": False,
+        },
+    )
+    right_keypoint_tracking_tanh_y = RewTerm(
+        func=mdp.keypoint_command_error_axis_tanh,
+        weight=0.25,
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
+            "std": 0.1,
+            "command_name": "right_ee_pose",
+            "axis": "y",
+            "keypoint_scale": 0.25,
+            "add_cube_center_kp": False,
+            "add_negative_axes": False,
+        },
+    )
+    right_keypoint_tracking_tanh_z = RewTerm(
+        func=mdp.keypoint_command_error_axis_tanh,
         weight=0.3,
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
-            "command_name": "left_ee_pose",
-            "a": 7.0,
-            "b": 0.02,
-            "keypoint_scale": 0.25,
-            "add_cube_center_kp": True,
-        },
-    )
-    # 注：显式姿态惩罚已移除，关键点方法已统一包含位姿约束
-    # 如发现姿态学习慢，可临时启用（weight=-0.05 ~ -0.1）
-    
-    right_keypoint_error = RewTerm(
-        func=mdp.keypoint_command_error,
-        weight=-0.3,
-        params={
-            "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
+            "std": 0.1,
             "command_name": "right_ee_pose",
+            "axis": "z",
             "keypoint_scale": 0.25,
-            "add_cube_center_kp": True,
+            "add_cube_center_kp": False,
+            "add_negative_axes": False,
         },
     )
-    right_keypoint_reward_exp = RewTerm(
-        func=mdp.keypoint_command_reward_exp,
-        weight=0.2,
-        params={
-            "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
-            "command_name": "right_ee_pose",
-            "a": 6.0,
-            "b": 0.02,
-            "keypoint_scale": 0.25,
-            "add_cube_center_kp": True,
-        },
-    )
-    # 稀疏成功奖励（课程在 2000 步启用）：位置 < 1cm 且姿态 < 5° 给 1，否则 0
-    left_reach_success_sparse = RewTerm(
-        func=mdp.reach_success_sparse,
-        weight=0.2,
-        params={
-            "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
-            "command_name": "left_ee_pose",
-            "pos_thresh": 0.005,
-            "orient_thresh_deg": 5.0,
-        },
-    )
-    
     right_reach_success_sparse = RewTerm(
-        func=mdp.reach_success_sparse,
-        weight=0.2,
+        func=mdp.reach_success_sparse_keypoints,
+        weight=2.0,
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
             "command_name": "right_ee_pose",
-            "pos_thresh": 0.01,
-            "orient_thresh_deg": 5.0,
+            "keypoint_thresh": 0.02,
+            "keypoint_scale": 0.25,
+            "add_cube_center_kp": False,
+            "add_negative_axes": False,
         },
     )
 
-    # ===== 平滑惩罚：消除抖动的关键 =====
-    # 从一开始就启用，防止学到抖动习惯
-    action_rate = RewTerm(
-        func=mdp.action_rate_l2, 
-        weight=-0.001,  # 原0.0，现在从一开始就惩罚
-    )
+    # 平滑项（参考 openarm）：抑制抖动，课程中逐步加大权重
+    action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.0001)
     left_joint_vel = RewTerm(
         func=mdp.joint_vel_l2,
-        weight=-0.0001,  # 原0.0，惩罚高速运动
-        params={"asset_cfg": SceneEntityCfg("robot", joint_names=["left_joint1",
-                                                                    "left_joint2",
-                                                                    "left_joint3",
-                                                                    "left_joint4",
-                                                                    "left_joint5",
-                                                                    "left_joint6",
-                                                                    "left_joint7",
-                                                                  ])},
+        weight=-0.0001,
+        params={
+            "asset_cfg": SceneEntityCfg("robot", joint_names=[
+                "left_joint1", "left_joint2", "left_joint3", "left_joint4",
+                "left_joint5", "left_joint6", "left_joint7",
+            ]),
+        },
     )
     right_joint_vel = RewTerm(
         func=mdp.joint_vel_l2,
-        weight=-0.0001,  # 原0.0
-        params={"asset_cfg": SceneEntityCfg("robot", joint_names=["right_joint1",
-                                                                    "right_joint2",
-                                                                    "right_joint3",
-                                                                    "right_joint4",
-                                                                    "right_joint5",
-                                                                    "right_joint6",
-                                                                    "right_joint7"
-                                                                  ])},
-    )
-
-    # 到达后加强惩罚动作变化，稳定保持
-    left_action_rate_penalty_when_reached = RewTerm(
-        func=mdp.action_rate_penalty_when_reached,
-        weight=-0.01,  # 原-0.001，增大10倍
+        weight=-0.0001,
         params={
-            "command_name": "left_ee_pose",
-            "body_asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
-            "action_name": "left_arm_action",
-        },
-    )
-    right_action_rate_penalty_when_reached = RewTerm(
-        func=mdp.action_rate_penalty_when_reached,
-        weight=-0.01,  # 原-0.001，增大10倍
-        params={
-            "command_name": "right_ee_pose",
-            "body_asset_cfg": SceneEntityCfg("robot", body_names=MISSING),
-            "action_name": "right_arm_action",
+            "asset_cfg": SceneEntityCfg("robot", joint_names=[
+                "right_joint1", "right_joint2", "right_joint3", "right_joint4",
+                "right_joint5", "right_joint6", "right_joint7",
+            ]),
         },
     )
 
@@ -389,33 +467,21 @@ class TerminationsCfg:
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
 
 
-@configclass  # 课程配置：5000 步加平滑惩罚，2000 步启用稀疏成功奖励
+@configclass
 class CurriculumCfg:
-    """Curriculum terms for the MDP."""
+    """平滑项课程（参考 openarm）：前期弱惩罚，后期逐步加大 action_rate / joint_vel 权重抑制抖动。"""
 
     action_rate = CurrTerm(
         func=mdp.modify_reward_weight,
-        params={"term_name": "action_rate", "weight": 0.0, "num_steps": 3000},
+        params={"term_name": "action_rate", "weight": -0.008, "num_steps": 4500},
     )
-
     left_joint_vel = CurrTerm(
         func=mdp.modify_reward_weight,
-        params={"term_name": "left_joint_vel", "weight": -0.0005, "num_steps": 3000},
+        params={"term_name": "left_joint_vel", "weight": -0.001, "num_steps": 4500},
     )
-
     right_joint_vel = CurrTerm(
         func=mdp.modify_reward_weight,
-        params={"term_name": "right_joint_vel", "weight": -0.001, "num_steps": 3000},
-    )
-
-    # 2000 步时启用稀疏成功奖励（位置 < 1cm 且姿态 < 5° 给奖励）
-    left_reach_success_sparse = CurrTerm(
-        func=mdp.modify_reward_weight,
-        params={"term_name": "left_reach_success_sparse", "weight": 0.3, "num_steps": 5000},
-    )
-    right_reach_success_sparse = CurrTerm(
-        func=mdp.modify_reward_weight,
-        params={"term_name": "right_reach_success_sparse", "weight": 0.3, "num_steps": 5000},
+        params={"term_name": "right_joint_vel", "weight": -0.001, "num_steps": 4500},
     )
 
 ##

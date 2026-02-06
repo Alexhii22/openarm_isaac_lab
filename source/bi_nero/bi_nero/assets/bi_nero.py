@@ -58,7 +58,7 @@ BI_NERO_CFG = ArticulationCfg(
     actuators={
         "bi_nero_arm": ImplicitActuatorCfg(
             joint_names_expr=["left_joint[1-7]", "right_joint[1-7]"],
-            velocity_limit_sim=1.2,  # 最大关节角速度 (rad/s)，调小→整体更慢，原 2.175
+            velocity_limit_sim=1.0,  # 最大关节角速度 (rad/s)，调小→整体更慢，原 2.175
             effort_limit_sim={
                 "left_joint[1-7]": 40.0,
                 "right_joint[1-7]": 40.0,
@@ -75,6 +75,6 @@ BI_NERO_CFG = ArticulationCfg(
 BI_NERO_HIGH_PD_CFG = BI_NERO_CFG.copy()
 BI_NERO_HIGH_PD_CFG.spawn.rigid_props.disable_gravity = True
 BI_NERO_HIGH_PD_CFG.actuators["bi_nero_arm"].stiffness = 400.0
-BI_NERO_HIGH_PD_CFG.actuators["bi_nero_arm"].damping = 180.0
+BI_NERO_HIGH_PD_CFG.actuators["bi_nero_arm"].damping = 160.0
 """Configuration of Bi-Nero bimanual robot with stiffer PD control."""
 

@@ -31,7 +31,7 @@ class BiNeroReachPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     resume = False
     empirical_normalization = False
     policy = RslRlPpoActorCriticCfg(
-        init_noise_std=0.3,  # 减小探索噪声（原 1.0），降低抖动
+        init_noise_std=1.0,  
         actor_hidden_dims=[256, 256, 128],  # 增大网络容量（原 [128,128]）
         critic_hidden_dims=[256, 256, 128],
         activation="elu",
@@ -43,7 +43,7 @@ class BiNeroReachPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         entropy_coef=0.005,  # 提高熵系数（原 0.001），鼓励初期探索
         num_learning_epochs=8,
         num_mini_batches=4,
-        learning_rate=5e-4,  # 进一步降低（原1e-3），更稳定收敛
+        learning_rate=1e-4,  # 进一步降低（原1e-3），更稳定收敛
         schedule="adaptive",
         gamma=0.99,
         lam=0.95,

@@ -49,6 +49,18 @@ parser.add_argument(
     default=None,
     help="If set, decode actions to Bi-Nero joint positions (rad) and write to this file each step for sim2sim (e.g. ROS bridge).",
 )
+parser.add_argument(
+    "--print_obs_actions",
+    action="store_true",
+    default=False,
+    help="Print observation (state input) and action (policy output) for understanding .pt usage.",
+)
+parser.add_argument(
+    "--print_obs_actions_interval",
+    type=int,
+    default=30,
+    help="When --print_obs_actions is set, print every N steps (default: 30).",
+)
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -203,6 +215,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # reset environment
     obs = env.get_observations()
     timestep = 0
+    print_obs_actions = getattr(args_cli, "print_obs_actions", False)
+    print_interval = getattr(args_cli, "print_obs_actions_interval", 30)
     # simulate environment
     while simulation_app.is_running():
         start_time = time.time()
@@ -210,6 +224,25 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         with torch.inference_mode():
             # agent stepping
             actions = policy(obs)
+            # 打印状态空间输入与动作空间输出（便于理解 .pt 使用）
+            if print_obs_actions and (timestep % print_interval == 0):
+                # obs 可能是 dict（如 {"policy": tensor}），policy 实际用的是 policy 观测
+                o = obs.get("policy", obs) if isinstance(obs, dict) else obs
+                a = actions if isinstance(actions, torch.Tensor) else actions
+                o = o if isinstance(o, torch.Tensor) else (list(o.values())[0] if isinstance(o, dict) else o)
+                o_np = o.cpu().numpy() if hasattr(o, "cpu") else o
+                a_np = a.cpu().numpy() if hasattr(a, "cpu") else a
+                if hasattr(o_np, "shape"):
+                    print(f"[step {timestep}] obs shape: {o.shape}  action shape: {a.shape}")
+                    if o_np.ndim >= 2:
+                        print(f"  obs[0] (env 0): {o_np[0]}")
+                        print(f"  action[0] (env 0): {a_np[0]}")
+                    else:
+                        print(f"  obs: {o_np}")
+                        print(f"  action: {a_np}")
+                else:
+                    print(f"[step {timestep}] obs (type {type(obs).__name__}), action shape: {a.shape}")
+                    print(f"  action[0]: {a_np[0] if a_np.ndim >= 2 else a_np}")
             # sim2sim: write decoded joint positions to file for ROS bridge
             if getattr(args_cli, "sim2sim_output", None):
                 try:
@@ -221,8 +254,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                     pass
             # env stepping
             obs, _, _, _ = env.step(actions)
+        timestep += 1
         if args_cli.video:
-            timestep += 1
             # Exit the play loop after recording one video
             if timestep == args_cli.video_length:
                 break
